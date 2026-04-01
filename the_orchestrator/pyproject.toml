@@ -1,0 +1,20 @@
+[project]
+name = "the-orchestrator"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "asyncpg>=0.31.0",
+    "click>=8.3.1",
+    "fastapi>=0.135.2",
+    "httpx>=0.28.1",
+    "langchain>=1.2.14",
+    "langchain-groq>=1.1.2",
+    "psycopg2-binary>=2.9.11",
+    "pydantic>=2.12.5",
+    "python-dotenv>=1.2.2",
+    "redis[asyncio]>=7.4.0",
+    "sqlalchemy>=2.0.48",
+    "uvicorn[standard]>=0.42.0",
+]
