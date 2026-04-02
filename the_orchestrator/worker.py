@@ -103,20 +103,22 @@ async def process_task(task: Task, projects: List[Project], llm_chain):
         # print(f"REASONING:        {selection.reasoning}")
         # print("-" * 60)
 
-
+        print("i readhed hear")
         #===============================  MIMP section ==========================================
         result = understand_codebase(selection.folder_path, task.user_query)
-        
-        related_files = {}
-        for file in result["related_files"]:
-            related_files[file.path] = file.content
+        try:
+            related_files = {}
+            for file in result["related_files"]:
+                related_files[file.path] = file.content
 
-        acess_code_generator(task.user_query, result["skeleton_path"], result["output_dir"], related_files)
+            acess_code_generator(task.user_query, result["skeleton_path"], result["output_dir"], related_files)
+        except Exception as e:
+            print(f"         [error] MIMP section failed: {e}")
         #=========================================================================================
 
         await complete_task(task.task_id, CompleteTaskRequest(
             status=TaskStatus.COMPLETED,
-            result=result["summary"])
+            result=result)
         )
         # print(result)
     except Exception as e:

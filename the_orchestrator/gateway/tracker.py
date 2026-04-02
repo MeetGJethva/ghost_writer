@@ -8,9 +8,11 @@ TTL:         24 hours
 from __future__ import annotations
 
 import json
+import os
+import httpx
 from datetime import datetime, timezone
 
-from the_orchestrator.gateway.models.task import Task, TaskStatus
+from the_orchestrator.gateway.models.task import Task, TaskStatus, SourceType
 from the_orchestrator.gateway.redis_client import get_redis
 
 _TASK_TTL_SECONDS = 60 * 60 * 24  # 24 h
@@ -33,11 +35,13 @@ async def update_task(
     status: TaskStatus,
     result: str | None = None,
     completion_time: datetime | None = None,
+    notify: bool = False,
 ) -> None:
     """
     Update status (and optionally result + completion_time) for a tracked task.
     Called by the worker when it finishes processing.
     """
+    print("i readhed hear")
     r = await get_redis()
     key = _registry_key(task_id)
     updates: dict[str, str] = {"status": status.value}
@@ -50,6 +54,22 @@ async def update_task(
     await r.hset(key, mapping=updates)
     # Refresh TTL on every update so active tasks don't expire mid-processing
     await r.expire(key, _TASK_TTL_SECONDS)
+
+    if notify:
+        task = await get_task(task_id)
+        if task and task.source == SourceType.WHATSAPP and result:
+            whatsapp_url = os.getenv("WHATSAPP_URL", "http://localhost:9007")
+            try:
+                print(f"Sending whatsapp notification to {task.source_id}")
+                print(f"URL: {whatsapp_url}/api/send-message")
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        f"{whatsapp_url}/api/send-message",
+                        json={"to": task.source_id, "message": result},
+                        timeout=5.0
+                    )
+            except Exception as e:
+                print(f"Failed to send whatsapp notification: {e}")
 
 
 async def get_task(task_id: str) -> Task | None:

@@ -160,6 +160,7 @@ async def complete_task(task_id: str, body: CompleteTaskRequest) -> TaskStatusRe
         status=body.status,
         result=body.result,
         completion_time=completion_time,
+        notify=True,
     )
 
     # Return the latest state

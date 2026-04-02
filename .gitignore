@@ -12,3 +12,8 @@ wheels/
 .env
 
 *.lock
+
+*.wwebjs_auth
+*.wwebjs_cache
+
+node_modules/
