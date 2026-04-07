@@ -29,7 +29,7 @@ class TesterAgent:
         self,
         user_query: str,
         skeleton: dict[str, Any],
-        related_files: dict[str, str],
+        modified_files: str,
         output_dir: str,
     ) -> str:
         """
@@ -37,19 +37,18 @@ class TesterAgent:
 
         Args:
             user_query: Original user requirements for context.
-            skeleton: Map of the files that were just created or updated.
-            related_files: Dictionary of {path: content} for context.
+            skeleton: Structural representation of the project.
+            modified_files: The files that the code generator has modified or created.
             output_dir: The workspace directory.
         """
         skeleton_str = json.dumps(skeleton, indent=2)
-        context_paths = list(related_files.keys())
 
         system_context = (
             f"You are an expert QA and Software Engineer.\n\n"
             f"WORKING DIRECTORY: {output_dir}\n\n"
             f"1. THE MISSION:\nVerify the update requested: {user_query}\n\n"
-            f"2. UPDATED FILES (Skeleton):\nThese are the files the generator just modified or created:\n{skeleton_str}\n\n"
-            f"3. INTEGRATION CONTEXT:\nThese existing files are critical dependencies. The update must not break them:\n{context_paths}\n\n"
+            f"2. PROJECT STRUCTURE (Skeleton):\nThis is the layout of the project, to help you navigate:\n{skeleton_str}\n\n"
+            f"3. MODIFIED FILES:\nThese are the changes made by the Code Generator:\n{modified_files}\n\n"
             f"INSTRUCTIONS:\n"
             f"- FIRST: Use 'list_directory' to ensure all files in the skeleton exist.\n"
             f"- SECOND: Use 'read_file' on the updated files to check for logic errors or missing imports.\n"

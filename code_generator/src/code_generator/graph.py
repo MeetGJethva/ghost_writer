@@ -70,7 +70,7 @@ def tester_node(state: PipelineState) -> PipelineState:
         user_query=state["user_query"],
         output_dir=state["output_dir"],
         skeleton=state["skeleton"],
-        related_files=state["related_files"],
+        modified_files=state["generator_output"],
     )
 
     print("\n✅  Tester finished.")

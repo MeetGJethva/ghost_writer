@@ -41,7 +41,6 @@ async def update_task(
     Update status (and optionally result + completion_time) for a tracked task.
     Called by the worker when it finishes processing.
     """
-    print("i readhed hear")
     r = await get_redis()
     key = _registry_key(task_id)
     updates: dict[str, str] = {"status": status.value}

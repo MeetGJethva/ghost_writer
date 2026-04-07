@@ -390,6 +390,7 @@ def acess_code_generator(query: str, skeleton: str, output_dir: str, related_fil
     print("\n🧪 TEST RESULT:")
     print(final_state.get("test_result", "(none)"))
     print("\n" + "█" * 60)
+    return final_state
     
 
 

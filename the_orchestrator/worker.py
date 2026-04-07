@@ -32,10 +32,10 @@ load_dotenv()
 
 class SelectedProject(BaseModel):
     """Structured response from the LLM routing decision."""
-    project_id: str = Field(description="The UUID of the selected project.")
-    project_name: str = Field(description="The name of the selected project.")
-    folder_path: str = Field(description="The absolute folder path of the selected project.")
-    reasoning: str = Field(description="Brief explanation of why this project was selected.")
+    project_id: str | None = Field(default=None, description="The UUID of the selected project, or None if no project matches.")
+    project_name: str | None = Field(default=None, description="The name of the selected project, or None if no project matches.")
+    folder_path: str | None = Field(default=None, description="The absolute folder path of the selected project, or None if no project matches.")
+    reasoning: str = Field(description="Brief explanation of why this project was selected, or a natural response to the user's query if no project is matched.")
 
 
 def get_llm():
@@ -83,7 +83,11 @@ async def process_task(task: Task, projects: List[Project], llm_chain):
         ("system", (
             "You are an intelligent orchestrator. Your job is to match a user query to the most appropriate project "
             "from the list provided. Each project has a name, description, keywords, and folder path.\n\n"
-            "PROJECT LIST:\n{projects}"
+            "PROJECT LIST:\n{projects}\n\n"
+            "Give natural response to normal queries and if user query is related to any of the projects, return the project_id.\n"
+            "NEVER assume any folder path other than the ones provided in the project list.\n"
+            "NEVER assume any project name other than the ones provided in the project list.\n"
+            "IF user query is not related to any of the projects, return None as project_id.\n"
         )),
         ("user", "{query}"),
     ])
@@ -96,14 +100,13 @@ async def process_task(task: Task, projects: List[Project], llm_chain):
             "query": task.user_query
         })
 
-        # Print the selected folder path as requested
-        # print("-" * 60)
-        # print(f"SELECTED PROJECT: {selection.project_name}")
-        # print(f"FOLDER PATH:      {selection.folder_path}")
-        # print(f"REASONING:        {selection.reasoning}")
-        # print("-" * 60)
+        if selection.project_id is None:
+            print("         [warning] No project found for the given query.")
+            await complete_task(task.task_id, CompleteTaskRequest(
+                status=TaskStatus.FAILED,
+                result=selection.reasoning))
+            return
 
-        print("i readhed hear")
         #===============================  MIMP section ==========================================
         result = understand_codebase(selection.folder_path, task.user_query)
         try:
@@ -111,14 +114,14 @@ async def process_task(task: Task, projects: List[Project], llm_chain):
             for file in result["related_files"]:
                 related_files[file.path] = file.content
 
-            acess_code_generator(task.user_query, result["skeleton_path"], result["output_dir"], related_files)
+            final_result = acess_code_generator(task.user_query, result["skeleton_path"], result["output_dir"], related_files)
         except Exception as e:
             print(f"         [error] MIMP section failed: {e}")
         #=========================================================================================
 
         await complete_task(task.task_id, CompleteTaskRequest(
             status=TaskStatus.COMPLETED,
-            result=result)
+            result= result["summary"] + "\n" + final_result["test_result"])
         )
         # print(result)
     except Exception as e:

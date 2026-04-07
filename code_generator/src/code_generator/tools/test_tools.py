@@ -119,8 +119,11 @@ def list_directory(path: str) -> str:
             return f"❌ Path is not a directory: '{path}'"
 
         lines = []
+        IGNORE_DIRS = {".git", ".venv", "__pycache__"}
         for item in sorted(target.rglob("*")):
             rel = item.relative_to(target)
+            if any(part in IGNORE_DIRS for part in rel.parts):
+                continue
             prefix = "  " * (len(rel.parts) - 1)
             icon = "📁" if item.is_dir() else "📄"
             lines.append(f"{prefix}{icon} {item.name}")
