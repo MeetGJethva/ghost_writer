@@ -297,8 +297,8 @@ export default function ChatInterface() {
                 <h3 style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.75rem', letterSpacing: '0.05em' }}>View Mode</h3>
                 <div className="toggle-group">
                   <button className={`toggle-btn ${viewFilter === 'all' ? 'active' : ''}`} onClick={() => setViewFilter('all')}>All</button>
-                  <button className={`toggle-btn ${viewFilter === 'http' ? 'active' : ''}`} onClick={() => setViewFilter('http')}>Web</button>
-                  <button className={`toggle-btn ${viewFilter === 'whatsapp' ? 'active' : ''}`} onClick={() => setViewFilter('whatsapp')}>WhatsApp</button>
+                  <button className={`toggle-btn ${viewFilter === 'HTTP' ? 'active' : ''}`} onClick={() => setViewFilter('HTTP')}>Web</button>
+                  <button className={`toggle-btn ${viewFilter === 'WHATSAPP' ? 'active' : ''}`} onClick={() => setViewFilter('WHATSAPP')}>WhatsApp</button>
                 </div>
               </div>
             </>
