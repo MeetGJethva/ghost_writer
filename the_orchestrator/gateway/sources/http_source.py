@@ -351,3 +351,32 @@ async def get_conversation_history(conversation_id: str, db: AsyncSession = Depe
             file_changes=file_changes
         ))
     return response
+
+
+class SuccessResponse(BaseModel):
+    success: bool
+    message: str | None = None
+
+
+@router.delete(
+    "/conversations/{conversation_id}",
+    response_model=SuccessResponse,
+    summary="Delete a conversation and all its history"
+)
+async def delete_conversation(conversation_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        conv_uuid = uuid.UUID(conversation_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation_id format")
+
+    stmt = select(Conversation).where(Conversation.id == conv_uuid)
+    result = await db.execute(stmt)
+    conversation = result.scalars().first()
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    await db.delete(conversation)
+    await db.commit()
+
+    return SuccessResponse(success=True, message="Conversation deleted successfully")

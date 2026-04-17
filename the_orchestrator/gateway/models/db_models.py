@@ -74,7 +74,7 @@ class Conversation(Base):
         nullable=False,
     )
 
-    chat_histories: Mapped[list["ChatHistory"]] = relationship("ChatHistory", back_populates="conversation")
+    chat_histories: Mapped[list["ChatHistory"]] = relationship("ChatHistory", back_populates="conversation", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Conversation(id={self.id!r}, source={self.source!r})>"
@@ -115,7 +115,7 @@ class ChatHistory(Base):
 
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="chat_histories")
     project: Mapped["Project"] = relationship("Project")
-    file_changes: Mapped[list["FileChange"]] = relationship("FileChange", back_populates="chat_history")
+    file_changes: Mapped[list["FileChange"]] = relationship("FileChange", back_populates="chat_history", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<ChatHistory(id={self.id!r}, is_from_agent={self.is_from_agent!r})>"

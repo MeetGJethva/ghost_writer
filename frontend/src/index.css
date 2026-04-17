@@ -370,3 +370,49 @@ body {
 .diff-line.removed { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
 .diff-line.added { background: rgba(34, 197, 94, 0.15); color: #86efac; }
 .line-num { color: #475569; min-width: 2rem; user-select: none; }
+
+/* Conversation List Item - Delete Button */
+.conversation-item .delete-conv-btn {
+  opacity: 0;
+  transform: scale(0.8);
+  transition: all 0.2s ease;
+}
+
+.conversation-item:hover .delete-conv-btn {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.delete-conv-btn:hover {
+  background: rgba(239, 68, 68, 0.2) !important;
+  color: #ef4444 !important;
+}
+
+/* Project Management Grid */
+.project-grid::-webkit-scrollbar {
+  width: 6px;
+}
+.project-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+.project-grid::-webkit-scrollbar-thumb {
+  background-color: var(--glass-border);
+  border-radius: 10px;
+}
+
+.tab-switcher button {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tab-switcher button:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.project-card {
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.project-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+}
