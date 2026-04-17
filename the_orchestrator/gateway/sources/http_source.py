@@ -9,8 +9,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
+import uuid
+
+from the_orchestrator.gateway.database import get_db
+from the_orchestrator.gateway.models.db_models import Conversation, ChatHistory, FileChange
+from the_orchestrator.gateway.ws_manager import manager as ws_manager
 
 from the_orchestrator.gateway.models.task import SourceType, Task, TaskStatus
 from the_orchestrator.gateway.stream import publish_task
@@ -41,6 +49,10 @@ class SubmitTaskRequest(BaseModel):
         default_factory=dict,
         description="Optional extra context to attach to the task",
     )
+    conversation_id: str | None = Field(
+        None,
+        description="Optional conversation ID for extending an existing thread. Used if not from whatsapp.",
+    )
 
 
 class SubmitTaskResponse(BaseModel):
@@ -61,6 +73,23 @@ class TaskStatusResponse(BaseModel):
     completion_time: datetime | None
     result: str | None
     metadata: dict[str, Any]
+
+class FileChangeResponse(BaseModel):
+    file_name: str
+    hash: str
+
+class ChatHistoryMessageResponse(BaseModel):
+    id: str
+    is_from_agent: bool
+    source: str
+    message: str
+    timestamp: str  
+    file_changes: list[FileChangeResponse] = []
+
+class ConversationResponse(BaseModel):
+    id: str
+    source: str
+    number: str | None
 
 
 class CompleteTaskRequest(BaseModel):
@@ -87,7 +116,68 @@ class CompleteTaskRequest(BaseModel):
         "the Redis Stream for worker consumption."
     ),
 )
-async def submit_task(body: SubmitTaskRequest) -> SubmitTaskResponse:
+async def submit_task(
+    body: SubmitTaskRequest,
+    db: AsyncSession = Depends(get_db)
+) -> SubmitTaskResponse:
+    conversation = None
+    
+    if body.source == SourceType.WHATSAPP:
+        stmt = select(Conversation).where(
+            Conversation.number == body.source_id,
+            Conversation.source == "whatsapp"
+        )
+        result = await db.execute(stmt)
+        conversation = result.scalars().first()
+        
+        if not conversation:
+            conversation = Conversation(source="whatsapp", number=body.source_id)
+            db.add(conversation)
+            await db.commit()
+            await db.refresh(conversation)
+    else:
+        if body.conversation_id:
+            try:
+                conv_uuid = uuid.UUID(body.conversation_id)
+                stmt = select(Conversation).where(Conversation.id == conv_uuid)
+                result = await db.execute(stmt)
+                conversation = result.scalars().first()
+            except ValueError:
+                pass
+                
+        if not conversation:
+            conversation = Conversation(source=body.source.value)
+            db.add(conversation)
+            await db.commit()
+            await db.refresh(conversation)
+
+    # Create entry in chat history
+    chat_entry = ChatHistory(
+        conversation_id=conversation.id,
+        message=body.query,
+        is_from_agent=False
+    )
+    db.add(chat_entry)
+    await db.commit()
+    await db.refresh(chat_entry)
+
+    # Broadcast user message to connected WebSocket clients
+    await ws_manager.broadcast(str(conversation.id), {
+        "type": "new_message",
+        "message": {
+            "id": str(chat_entry.id),
+            "is_from_agent": False,
+            "source": conversation.source,
+            "message": body.query,
+            "timestamp": chat_entry.created_at.strftime("%I:%M %p"),
+            "file_changes": []
+        }
+    })
+
+    # Ensure task metadata knows about the DB records so workers can reference them
+    body.metadata["conversation_id"] = str(conversation.id)
+    body.metadata["chat_history_id"] = str(chat_entry.id)
+
     task = Task(
         source=body.source,
         source_id=body.source_id,
@@ -163,6 +253,36 @@ async def complete_task(task_id: str, body: CompleteTaskRequest) -> TaskStatusRe
         notify=True,
     )
 
+    if body.status == TaskStatus.COMPLETED and task.metadata.get("conversation_id"):
+        from the_orchestrator.gateway.database import AsyncSessionLocal
+        import uuid as _uuid
+        async with AsyncSessionLocal() as session:
+            try:
+                conv_id = _uuid.UUID(task.metadata["conversation_id"])
+                agent_msg = ChatHistory(
+                    conversation_id=conv_id,
+                    message=body.result or "Task completed.",
+                    is_from_agent=True
+                )
+                session.add(agent_msg)
+                await session.commit()
+                await session.refresh(agent_msg)
+
+                # Broadcast agent response over WebSocket
+                await ws_manager.broadcast(str(conv_id), {
+                    "type": "new_message",
+                    "message": {
+                        "id": str(agent_msg.id),
+                        "is_from_agent": True,
+                        "source": "web",
+                        "message": agent_msg.message,
+                        "timestamp": agent_msg.created_at.strftime("%I:%M %p"),
+                        "file_changes": []
+                    }
+                })
+            except Exception as e:
+                print(f"Failed to insert agent chat history: {e}")
+
     # Return the latest state
     updated_task = await get_task(task_id)
     return TaskStatusResponse(
@@ -176,3 +296,58 @@ async def complete_task(task_id: str, body: CompleteTaskRequest) -> TaskStatusRe
         result=updated_task.result,
         metadata=updated_task.metadata,
     )
+
+
+@router.get(
+    "/conversations",
+    response_model=list[ConversationResponse],
+    summary="Get all conversations"
+)
+async def get_conversations(db: AsyncSession = Depends(get_db)):
+    stmt = select(Conversation).order_by(Conversation.created_at.desc())
+    result = await db.execute(stmt)
+    conversations = result.scalars().all()
+    
+    return [
+        ConversationResponse(
+            id=str(c.id),
+            source=c.source,
+            number=c.number
+        ) for c in conversations
+    ]
+
+@router.get(
+    "/conversations/{conversation_id}/history",
+    response_model=list[ChatHistoryMessageResponse],
+    summary="Get chat history for a conversation"
+)
+async def get_conversation_history(conversation_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        conv_uuid = uuid.UUID(conversation_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation_id format")
+
+    stmt = (
+        select(ChatHistory)
+        .where(ChatHistory.conversation_id == conv_uuid)
+        .options(selectinload(ChatHistory.file_changes), selectinload(ChatHistory.conversation))
+        .order_by(ChatHistory.created_at.asc())
+    )
+    result = await db.execute(stmt)
+    history = result.scalars().all()
+
+    response = []
+    for msg in history:
+        file_changes = [
+            FileChangeResponse(file_name=fc.file_name, hash=fc.hash) 
+            for fc in msg.file_changes
+        ]
+        response.append(ChatHistoryMessageResponse(
+            id=str(msg.id),
+            is_from_agent=msg.is_from_agent,
+            source="whatsapp" if msg.conversation.source == "whatsapp" else "web", # Approximating without joining Conv, wait, source is in conversation.
+            message=msg.message,
+            timestamp=msg.created_at.strftime("%I:%M %p"),
+            file_changes=file_changes
+        ))
+    return response

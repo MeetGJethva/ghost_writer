@@ -30,6 +30,7 @@ class PipelineState(TypedDict):
     generator_output: str   # populated after code_generator_node
     test_result: str        # populated after tester_node
     related_files: dict[str, str]
+    conversation_history: str
 
 
 # ── Node functions ────────────────────────────────────────────────────────────
@@ -49,6 +50,7 @@ def code_generator_node(state: PipelineState) -> PipelineState:
         skeleton=state["skeleton"],
         output_dir=state["output_dir"],
         related_files=state["related_files"],
+        conversation_history=state.get("conversation_history", ""),
     )
     print(f"Ouptput: {output}")
 

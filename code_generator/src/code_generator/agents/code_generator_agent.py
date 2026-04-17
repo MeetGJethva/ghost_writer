@@ -31,6 +31,7 @@ class CodeGeneratorAgent:
         skeleton: dict[str, Any],
         related_files: dict[str, str],
         output_dir: str,
+        conversation_history: str = "",
     ) -> str:
         """
         Updates or creates project files.
@@ -40,6 +41,7 @@ class CodeGeneratorAgent:
             skeleton: The structural map of files targeted for this update.
             related_files: A dictionary of {path: content} for context/reference.
             output_dir: The active workspace directory.
+            conversation_history: Previous conversation history for context.
         """
         skeleton_str = json.dumps(skeleton, indent=2)
         
@@ -49,6 +51,7 @@ class CodeGeneratorAgent:
         system_context = (
             f"You are an expert Senior Software Engineer capable of updating existing codebases.\n\n"
             f"WORKING DIRECTORY: {output_dir}\n\n"
+            f"0. CONVERSATION HISTORY:\n{conversation_history}\n\n"
             f"1. CORE TASK:\n{user_query}\n\n"
             f"2. TARGET FILES (Skeleton):\nUse this to identify which files to create or modify:\n{skeleton_str}\n\n"
             f"3. RELATED CONTEXT (Read-Only):\nUse these files to understand dependencies/styles. Do NOT modify these unless they are also in the skeleton:\n{context_str}\n\n"

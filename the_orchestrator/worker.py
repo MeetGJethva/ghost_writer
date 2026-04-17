@@ -14,9 +14,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from the_orchestrator.gateway.database import AsyncSessionLocal, engine
-from the_orchestrator.gateway.models.db_models import Project
+from the_orchestrator.gateway.models.db_models import Project, ChatHistory, Conversation
 from the_orchestrator.gateway.models.task import Task, TaskStatus
 from the_orchestrator.gateway.redis_client import close_redis, get_redis
 from the_orchestrator.gateway.stream import CONSUMER_GROUP, STREAM_NAME, ensure_consumer_group
@@ -64,6 +65,31 @@ async def fetch_projects() -> List[Project]:
         return list(result.scalars().all())
 
 
+async def fetch_conversation_history(conversation_id: str = None, source: str = None, source_id: str = None) -> str:
+    """Retrieve formatted conversation history for context."""
+    import uuid
+    async with AsyncSessionLocal() as session:
+        if source == "whatsapp":
+            stmt = select(Conversation).where(Conversation.number == source_id, Conversation.source == "whatsapp")
+            result = await session.execute(stmt)
+            conv = result.scalars().first()
+            if not conv:
+                return ""
+            conv_id = conv.id
+        else:
+            if not conversation_id:
+                return ""
+            try:
+                conv_id = uuid.UUID(conversation_id)
+            except ValueError:
+                return ""
+                
+        stmt = select(ChatHistory).where(ChatHistory.conversation_id == conv_id).order_by(ChatHistory.created_at)
+        result = await session.execute(stmt)
+        history = list(result.scalars().all())
+        return "\n".join([f"{'Agent' if msg.is_from_agent else 'User'}: {msg.message}" for msg in history])
+
+
 async def process_task(task: Task, projects: List[Project], llm_chain):
     """Use context (projects) and LLM to route the user query."""
     print(f"\n[worker] Processing task {task.task_id} from {task.source_id}")
@@ -103,7 +129,7 @@ async def process_task(task: Task, projects: List[Project], llm_chain):
         if selection.project_id is None:
             print("         [warning] No project found for the given query.")
             await complete_task(task.task_id, CompleteTaskRequest(
-                status=TaskStatus.FAILED,
+                status=TaskStatus.COMPLETED,
                 result=selection.reasoning))
             return
 
@@ -114,7 +140,17 @@ async def process_task(task: Task, projects: List[Project], llm_chain):
             for file in result["related_files"]:
                 related_files[file.path] = file.content
 
-            final_result = acess_code_generator(task.user_query, result["skeleton_path"], result["output_dir"], related_files)
+            conversation_history = ""
+            conv_id = task.metadata.get("conversation_id")
+            source_str = "whatsapp" if getattr(task.source, "value", str(task.source)) == "whatsapp" else None
+            
+            conversation_history = await fetch_conversation_history(
+                conversation_id=conv_id,
+                source=source_str,
+                source_id=task.source_id
+            )
+
+            final_result = acess_code_generator(task.user_query, result["skeleton_path"], result["output_dir"], related_files, conversation_history)
         except Exception as e:
             print(f"         [error] MIMP section failed: {e}")
         #=========================================================================================

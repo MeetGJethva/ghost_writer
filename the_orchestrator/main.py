@@ -8,7 +8,7 @@ def main():
     uvicorn.run(
         "the_orchestrator.gateway.app:app",
         host="0.0.0.0",
-        port=8000,
+        port=3300,
         reload=True,
         log_level="info",
     )

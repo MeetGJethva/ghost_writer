@@ -368,7 +368,7 @@ def load_skeleton(path):
         return json.load(f)
     
 
-def acess_code_generator(query: str, skeleton: str, output_dir: str, related_files: dict):
+def acess_code_generator(query: str, skeleton: str, output_dir: str, related_files: dict, conversation_history: str = ""):
     from code_generator.src.code_generator.graph import pipeline
 
     initial_state = {
@@ -376,6 +376,7 @@ def acess_code_generator(query: str, skeleton: str, output_dir: str, related_fil
         "skeleton": load_skeleton(skeleton),
         "output_dir": output_dir,
         "related_files": related_files,
+        "conversation_history": conversation_history,
         "generator_output": "",
         "test_result": "",
     }
