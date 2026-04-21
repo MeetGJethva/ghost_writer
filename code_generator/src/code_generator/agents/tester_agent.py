@@ -4,7 +4,7 @@ tester_agent.py – Tester agent.
 Given the output directory and original user requirements, this agent reads
 the generated files, runs tests, and reports pass/fail.
 """
-from typing import Any
+from typing import Any, List
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 
@@ -29,7 +29,7 @@ class TesterAgent:
         self,
         user_query: str,
         skeleton: dict[str, Any],
-        modified_files: str,
+        modified_files: List[str],
         output_dir: str,
     ) -> str:
         """

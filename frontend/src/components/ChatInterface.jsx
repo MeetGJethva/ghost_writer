@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Bot, User, Code, FileText, Send, X, Smartphone, Plus, MessageSquare, Trash2, Folder, ExternalLink, Settings } from 'lucide-react';
+import { Bot, User, Code, FileText, Send, X, Smartphone, Plus, MessageSquare, Trash2, Folder, ChevronDown, ChevronRight, Layout } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 const API_BASE = 'http://localhost:3300/api';
 const WS_BASE = 'ws://localhost:3300/ws';
 
 export default function ChatInterface() {
-  const [activeTab, setActiveTab] = useState('chats'); // 'chats' or 'projects'
+  const [activeTab, setActiveTab] = useState('chats');
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -14,14 +19,21 @@ export default function ChatInterface() {
   const [viewFilter, setViewFilter] = useState('all');
   const [selectedChange, setSelectedChange] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [expandedResponses, setExpandedResponses] = useState({}); // map of msg.id -> bool
 
-  // Project state
   const [projects, setProjects] = useState([]);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [newProject, setNewProject] = useState({ name: '', description: '', keywords: '', folder_path: '' });
 
   const messagesEndRef = useRef(null);
   const wsRef = useRef(null);
+
+  const toggleResponse = (msgId) => {
+    setExpandedResponses(prev => ({
+      ...prev,
+      [msgId]: !prev[msgId]
+    }));
+  };
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -242,11 +254,41 @@ export default function ChatInterface() {
     );
   };
 
+  const MarkdownRenderer = ({ content }) => {
+    if (!content) return null;
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkBreaks]}
+        components={{
+          code({ node, inline, className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || '');
+            return !inline && match ? (
+              <SyntaxHighlighter
+                style={atomDark}
+                language={match[1]}
+                PreTag="div"
+                className="rounded-md my-2"
+                {...props}
+              >
+                {String(children).replace(/\n$/, '')}
+              </SyntaxHighlighter>
+            ) : (
+              <code className={`${className} bg-slate-800 px-1 rounded`} {...props}>
+                {children}
+              </code>
+            );
+          }
+        }}
+      >
+        {String(content).replace(/\\n/g, '\n')}
+      </ReactMarkdown>
+    );
+  };
+
   return (
     <div className="app-container" style={{ position: 'relative', background: '#0a0f1d' }}>
       <BackgroundOrbs />
 
-      {/* Sidebar */}
       <div className="sidebar glass-panel" style={{ overflowY: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative', zIndex: 1 }}>
         <div>
           <h2 style={{ fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
@@ -279,7 +321,7 @@ export default function ChatInterface() {
             </button>
           </div>
 
-          {activeTab === 'chats' ? (
+          {activeTab === 'chats' && (
             <>
               <button
                 onClick={handleNewConversation}
@@ -302,7 +344,9 @@ export default function ChatInterface() {
                 </div>
               </div>
             </>
-          ) : (
+          )}
+
+          {activeTab === 'projects' && (
             <button
               onClick={() => setShowCreateProject(true)}
               style={{
@@ -317,7 +361,6 @@ export default function ChatInterface() {
           )}
         </div>
 
-        {/* List Content */}
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }} className="chat-messages">
           {activeTab === 'chats' ? (
             filteredConversations.map(conv => (
@@ -342,7 +385,16 @@ export default function ChatInterface() {
                     {conv.id.substring(0, 8)}...
                   </span>
                 </div>
-                <button onClick={(e) => handleDeleteConversation(e, conv.id)} className="delete-conv-btn" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}>
+                <button
+                  onClick={(e) => handleDeleteConversation(e, conv.id)}
+                  className="delete-conv-btn"
+                  style={{
+                    background: 'none', border: 'none', color: 'var(--text-muted)',
+                    cursor: 'pointer', padding: '4px', borderRadius: '4px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'color 0.2s, background 0.2s'
+                  }}
+                >
                   <Trash2 size={16} />
                 </button>
               </div>
@@ -369,7 +421,16 @@ export default function ChatInterface() {
                     {proj.folder_path}
                   </span>
                 </div>
-                <button onClick={(e) => handleDeleteProject(e, proj.id)} className="delete-conv-btn" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}>
+                <button
+                  onClick={(e) => handleDeleteProject(e, proj.id)}
+                  className="delete-conv-btn"
+                  style={{
+                    background: 'none', border: 'none', color: 'var(--text-muted)',
+                    cursor: 'pointer', padding: '4px', borderRadius: '4px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'color 0.2s, background 0.2s'
+                  }}
+                >
                   <Trash2 size={16} />
                 </button>
               </div>
@@ -378,7 +439,6 @@ export default function ChatInterface() {
         </div>
       </div>
 
-      {/* Main Chat Area */}
       <div className="chat-area glass-panel" style={{ position: 'relative', zIndex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div className="chat-header">
           <div>
@@ -402,14 +462,55 @@ export default function ChatInterface() {
                         <Bot size={24} />
                       </div>
                     )}
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', maxWidth: '100%' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                         <span>{msg.is_from_agent ? 'Agent' : 'You'}</span>
                         <span>&bull;</span>
                         <span>{msg.timestamp}</span>
                       </div>
-                      <div className="message-bubble" style={{ whiteSpace: 'pre-wrap' }}>
-                        {msg.message}
+                      <div className="message-bubble">
+                        <MarkdownRenderer content={msg.message} />
+                        
+                        {msg.is_from_agent && msg.all_agent_responses && Object.keys(msg.all_agent_responses).length > 0 && (
+                          <div style={{ marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.75rem' }}>
+                            <button 
+                              onClick={() => toggleResponse(msg.id)}
+                              style={{ 
+                                background: 'rgba(255,255,255,0.05)', border: 'none', color: 'var(--text-muted)', 
+                                padding: '0.5rem 0.75rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem',
+                                display: 'flex', alignItems: 'center', gap: '0.5rem', transition: 'all 0.2s'
+                              }}
+                            >
+                              <Layout size={14} />
+                              {expandedResponses[msg.id] ? 'Hide Agent Breakdown' : 'Show Agent Breakdown'}
+                              {expandedResponses[msg.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            </button>
+
+                            <AnimatePresence>
+                              {expandedResponses[msg.id] && (
+                                <motion.div 
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: 'auto', opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  style={{ overflow: 'hidden', marginTop: '0.75rem' }}
+                                >
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '12px' }}>
+                                    {Object.entries(msg.all_agent_responses).map(([agent, response], i) => (
+                                      <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--accent-2)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                          <Bot size={12} /> {agent}
+                                        </div>
+                                        <div style={{ fontSize: '0.85rem', color: '#cbd5e1', lineHeight: '1.6' }}>
+                                          <MarkdownRenderer content={response} />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        )}
                       </div>
 
                       {msg.file_changes && msg.file_changes.length > 0 && (
@@ -461,7 +562,7 @@ export default function ChatInterface() {
         ) : (
           <div className="project-grid" style={{ padding: '2rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem', overflowY: 'auto' }}>
             {projects.map(proj => (
-              <div key={proj.id} className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: 'rgba(255,255,255,0.02)' }}>
+              <div key={proj.id} className="project-card glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: 'rgba(255,255,255,0.02)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ background: 'rgba(139, 92, 246, 0.1)', padding: '0.75rem', borderRadius: '12px' }}>
                     <Folder color="var(--accent-2)" size={24} />
@@ -503,7 +604,6 @@ export default function ChatInterface() {
         )}
       </div>
 
-      {/* Review Changes Modal */}
       <AnimatePresence>
         {selectedChange && (
           <motion.div className="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedChange(null)}>
@@ -528,7 +628,6 @@ export default function ChatInterface() {
         )}
       </AnimatePresence>
 
-      {/* Register Project Modal */}
       <AnimatePresence>
         {showCreateProject && (
           <motion.div className="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowCreateProject(false)}>

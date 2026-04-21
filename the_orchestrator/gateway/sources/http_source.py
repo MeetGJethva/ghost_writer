@@ -83,6 +83,7 @@ class ChatHistoryMessageResponse(BaseModel):
     is_from_agent: bool
     source: str
     message: str
+    all_agent_responses: dict[str, Any] | None = None
     timestamp: str  
     file_changes: list[FileChangeResponse] = []
 
@@ -94,7 +95,8 @@ class ConversationResponse(BaseModel):
 
 class CompleteTaskRequest(BaseModel):
     status: TaskStatus = Field(..., description="Final status: COMPLETED or FAILED")
-    result: str | None = Field(None, description="Response payload from the worker")
+    result: str | None = Field(None, description="Response payload from the worker (summary)")
+    all_agent_responses: dict[str, Any] | None = Field(None, description="Verbatim responses from each agent")
     completion_time: datetime | None = Field(
         None,
         description="When the task finished (defaults to now if omitted)",
@@ -262,6 +264,7 @@ async def complete_task(task_id: str, body: CompleteTaskRequest) -> TaskStatusRe
                 agent_msg = ChatHistory(
                     conversation_id=conv_id,
                     message=body.result or "Task completed.",
+                    all_agent_responses=body.all_agent_responses,
                     is_from_agent=True
                 )
                 session.add(agent_msg)
@@ -271,14 +274,15 @@ async def complete_task(task_id: str, body: CompleteTaskRequest) -> TaskStatusRe
                 # Broadcast agent response over WebSocket
                 await ws_manager.broadcast(str(conv_id), {
                     "type": "new_message",
-                    "message": {
-                        "id": str(agent_msg.id),
-                        "is_from_agent": True,
-                        "source": "web",
-                        "message": agent_msg.message,
-                        "timestamp": agent_msg.created_at.strftime("%I:%M %p"),
-                        "file_changes": []
-                    }
+                        "message": {
+                            "id": str(agent_msg.id),
+                            "is_from_agent": True,
+                            "source": "web",
+                            "message": agent_msg.message,
+                            "all_agent_responses": agent_msg.all_agent_responses,
+                            "timestamp": agent_msg.created_at.strftime("%I:%M %p"),
+                            "file_changes": []
+                        }
                 })
             except Exception as e:
                 print(f"Failed to insert agent chat history: {e}")
@@ -345,8 +349,9 @@ async def get_conversation_history(conversation_id: str, db: AsyncSession = Depe
         response.append(ChatHistoryMessageResponse(
             id=str(msg.id),
             is_from_agent=msg.is_from_agent,
-            source="whatsapp" if msg.conversation.source == "whatsapp" else "web", # Approximating without joining Conv, wait, source is in conversation.
+            source="whatsapp" if msg.conversation.source == "whatsapp" else "web",
             message=msg.message,
+            all_agent_responses=msg.all_agent_responses,
             timestamp=msg.created_at.strftime("%I:%M %p"),
             file_changes=file_changes
         ))

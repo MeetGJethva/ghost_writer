@@ -90,6 +90,41 @@ async def fetch_conversation_history(conversation_id: str = None, source: str = 
         return "\n".join([f"{'Agent' if msg.is_from_agent else 'User'}: {msg.message}" for msg in history])
 
 
+async def summarize_agent_outputs(agent_responses: dict, user_query: str) -> str:
+    """
+    Uses LLM to create a concise executive summary of all agent actions.
+    Synthesizes the plan, code changes, and test results into a readable message.
+    """
+    llm = ChatGroq(
+        model_name="llama-3.1-8b-instant", 
+        groq_api_key=os.getenv("GROQ_API_KEY"),
+        temperature=0.3,
+    )
+    
+    responses_str = ""
+    for agent, resp in agent_responses.items():
+        responses_str += f"\n\n### {agent}\n{resp}"
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", (
+            "You are a Senior Project Manager summarizing the work of an AI engineer team.\n"
+            "Your goal is to provide a concise, professional, and friendly summary of the work performed.\n"
+            "The user asked for a change, and several specialized agents (Understander, Generator, Tester) worked on it.\n\n"
+            "SYNTHESIS REQUIREMENTS:\n"
+            "- Acknowledge the core task completion.\n"
+            "- Mention key files modified or created.\n"
+            "- Clearly state if tests passed or failed.\n"
+            "- Use clean Markdown (bullet points, bold text).\n"
+            "- Keep it between 3-5 sentences unless complex.\n"
+        )),
+        ("user", f"**USER REQUEST:** {user_query}\n\n**AGENT WORK LOGS:**{responses_str}"),
+    ])
+    
+    chain = prompt | llm
+    result = await chain.ainvoke({})
+    return result.content
+
+
 async def process_task(task: Task, projects: List[Project], llm_chain):
     """Use context (projects) and LLM to route the user query."""
     print(f"\n[worker] Processing task {task.task_id} from {task.source_id}")
@@ -151,15 +186,34 @@ async def process_task(task: Task, projects: List[Project], llm_chain):
             )
 
             final_result = acess_code_generator(task.user_query, result["skeleton_path"], result["output_dir"], related_files, conversation_history)
-        except Exception as e:
-            print(f"         [error] MIMP section failed: {e}")
-        #=========================================================================================
+            
+            # Collect structured responses from all agents
+            all_agent_responses = {
+                "CodeUnderstandingAgent": result.get("summary", ""),
+                "CodeGeneratorAgent": final_result.get("generator_output", ""),
+            }
+            
+            # Add TesterAgent output only if it was triggered
+            if final_result.get("test_result"):
+                all_agent_responses["TesterAgent"] = final_result.get("test_result", "")
 
-        await complete_task(task.task_id, CompleteTaskRequest(
-            status=TaskStatus.COMPLETED,
-            result= result["summary"] + "\n" + final_result["test_result"])
-        )
-        # print(result)
+            # NEW: Generate a concise executive summary using a final LLM pass
+            print("         [info] Generating executive summary...")
+            summary = await summarize_agent_outputs(all_agent_responses, task.user_query)
+
+            await complete_task(task.task_id, CompleteTaskRequest(
+                status=TaskStatus.COMPLETED,
+                result=summary,
+                all_agent_responses=all_agent_responses
+            ))
+
+        except Exception as e:
+            print(f"         [error] Generation/Testing pipeline failed: {e}")
+            await complete_task(task.task_id, CompleteTaskRequest(
+                status=TaskStatus.FAILED,
+                result=f"Processing failed: {str(e)}"
+            ))
+        #=========================================================================================
     except Exception as e:
         print(f"         [error] LLM routing failed: {e}")
 

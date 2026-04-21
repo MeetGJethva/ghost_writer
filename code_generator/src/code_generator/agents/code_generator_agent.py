@@ -32,7 +32,7 @@ class CodeGeneratorAgent:
         related_files: dict[str, str],
         output_dir: str,
         conversation_history: str = "",
-    ) -> str:
+    ) -> dict[str, Any]:
         """
         Updates or creates project files.
         
@@ -42,6 +42,11 @@ class CodeGeneratorAgent:
             related_files: A dictionary of {path: content} for context/reference.
             output_dir: The active workspace directory.
             conversation_history: Previous conversation history for context.
+            
+        Returns:
+            A dictionary containing:
+              - content: The agent's final explanation/message.
+              - modified_files: A list of paths that were actually written to.
         """
         skeleton_str = json.dumps(skeleton, indent=2)
         
@@ -69,4 +74,18 @@ class CodeGeneratorAgent:
         )
 
         messages = result.get("messages", [])
-        return messages[-1].content if messages else "Update failed."
+        
+        # Track modified files by inspecting tool calls
+        modified_files = set()
+        for m in messages:
+            if hasattr(m, "tool_calls") and m.tool_calls:
+                for tc in m.tool_calls:
+                    if tc["name"] == "create_file":
+                        path = tc.get("args", {}).get("path")
+                        if path:
+                            modified_files.add(path)
+
+        return {
+            "content": messages[-1].content if messages else "Update failed.",
+            "modified_files": list(modified_files)
+        }

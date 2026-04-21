@@ -6,7 +6,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Text, DateTime, Boolean, ForeignKey
+from sqlalchemy import String, Text, DateTime, Boolean, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from the_orchestrator.gateway.database import Base
@@ -97,6 +97,10 @@ class ChatHistory(Base):
     message: Mapped[str] = mapped_column(
         Text,
         nullable=False,
+    )
+    all_agent_responses: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
     )
     project_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("projects.id"),
