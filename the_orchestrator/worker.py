@@ -27,32 +27,6 @@ from code_generator.main import acess_code_generator
 
 load_dotenv()
 
-# ---------------------------------------------------------------------------
-# LLM Configuration
-# ---------------------------------------------------------------------------
-
-class SelectedProject(BaseModel):
-    """Structured response from the LLM routing decision."""
-    project_id: str | None = Field(default=None, description="The UUID of the selected project, or None if no project matches.")
-    project_name: str | None = Field(default=None, description="The name of the selected project, or None if no project matches.")
-    folder_path: str | None = Field(default=None, description="The absolute folder path of the selected project, or None if no project matches.")
-    reasoning: str = Field(description="Brief explanation of why this project was selected, or a natural response to the user's query if no project is matched.")
-
-
-def get_llm():
-    """Initialize the Groq LLM with structured output capability."""
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key or api_key == "your_groq_api_key_here":
-        print("[error] GROQ_API_KEY is not set in .env. Please provide a valid key.", file=sys.stderr)
-        sys.exit(1)
-        
-    llm = ChatGroq(
-        model_name="llama-3.1-8b-instant", 
-        groq_api_key=api_key,
-        temperature=0,
-    )
-    return llm.with_structured_output(SelectedProject)
-
 
 # ---------------------------------------------------------------------------
 # Worker Logic
@@ -90,132 +64,62 @@ async def fetch_conversation_history(conversation_id: str = None, source: str = 
         return "\n".join([f"{'Agent' if msg.is_from_agent else 'User'}: {msg.message}" for msg in history])
 
 
-async def summarize_agent_outputs(agent_responses: dict, user_query: str) -> str:
-    """
-    Uses LLM to create a concise executive summary of all agent actions.
-    Synthesizes the plan, code changes, and test results into a readable message.
-    """
-    llm = ChatGroq(
-        model_name="llama-3.1-8b-instant", 
-        groq_api_key=os.getenv("GROQ_API_KEY"),
-        temperature=0.3,
-    )
-    
-    responses_str = ""
-    for agent, resp in agent_responses.items():
-        responses_str += f"\n\n### {agent}\n{resp}"
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", (
-            "You are a Senior Project Manager summarizing the work of an AI engineer team.\n"
-            "Your goal is to provide a concise, professional, and friendly summary of the work performed.\n"
-            "The user asked for a change, and several specialized agents (Understander, Generator, Tester) worked on it.\n\n"
-            "SYNTHESIS REQUIREMENTS:\n"
-            "- Acknowledge the core task completion.\n"
-            "- Mention key files modified or created.\n"
-            "- Clearly state if tests passed or failed.\n"
-            "- Use clean Markdown (bullet points, bold text).\n"
-            "- Keep it between 3-5 sentences unless complex.\n"
-        )),
-        ("user", f"**USER REQUEST:** {user_query}\n\n**AGENT WORK LOGS:**{responses_str}"),
-    ])
-    
-    chain = prompt | llm
-    result = await chain.ainvoke({})
-    return result.content
-
-
-async def process_task(task: Task, projects: List[Project], llm_chain):
-    """Use context (projects) and LLM to route the user query."""
+async def process_task(task: Task, projects: List[Project]):
+    """Delegates task processing to the unified Orchestrator Graph."""
     print(f"\n[worker] Processing task {task.task_id} from {task.source_id}")
     print(f"         Query: {task.user_query}")
 
-    if not projects:
-        print("         [warning] No projects registered in the database. Cannot route task.")
-        return
+    # Prepare project context
+    projects_data = [
+        {
+            "id": str(p.id),
+            "name": p.name,
+            "folder_path": p.folder_path,
+            "keywords": p.keywords,
+            "description": p.description
+        } for p in projects
+    ]
 
-    # Prepare project context for the prompt
-    project_list_str = "\n".join([
-        f"- ID: {p.id}\n  Name: {p.name}\n  Folder: {p.folder_path}\n  Keywords: {p.keywords}\n  Description: {p.description}"
-        for p in projects
-    ])
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", (
-            "You are an intelligent orchestrator. Your job is to match a user query to the most appropriate project "
-            "from the list provided. Each project has a name, description, keywords, and folder path.\n\n"
-            "PROJECT LIST:\n{projects}\n\n"
-            "Give natural response to normal queries and if user query is related to any of the projects, return the project_id.\n"
-            "NEVER assume any folder path other than the ones provided in the project list.\n"
-            "NEVER assume any project name other than the ones provided in the project list.\n"
-            "IF user query is not related to any of the projects, return None as project_id.\n"
-        )),
-        ("user", "{query}"),
-    ])
+    # Fetch conversation history for routing context
+    conversation_history = ""
+    conv_id = task.metadata.get("conversation_id")
+    source_str = "whatsapp" if getattr(task.source, "value", str(task.source)) == "whatsapp" else None
+    
+    conversation_history = await fetch_conversation_history(
+        conversation_id=conv_id,
+        source=source_str,
+        source_id=task.source_id
+    )
 
     try:
-        # Run the LLM chain
-        chain = prompt | llm_chain
-        selection: SelectedProject = await chain.ainvoke({
-            "projects": project_list_str,
-            "query": task.user_query
-        })
+        # Run the unified graph
+        final_state = acess_code_generator(
+            query=task.user_query,
+            projects=projects_data,
+            conversation_history=conversation_history
+        )
 
-        if selection.project_id is None:
-            print("         [warning] No project found for the given query.")
-            await complete_task(task.task_id, CompleteTaskRequest(
-                status=TaskStatus.COMPLETED,
-                result=selection.reasoning))
-            return
+        # Map state back to structured database record
+        all_agent_responses = {}
+        if final_state.get("understanding_output"):
+            all_agent_responses["CodeUnderstandingAgent"] = final_state["understanding_output"]
+        if final_state.get("generator_output"):
+            all_agent_responses["CodeGeneratorAgent"] = final_state["generator_output"]
+        
+        status = TaskStatus.COMPLETED if not final_state.get("error") else TaskStatus.FAILED
+        
+        await complete_task(task.task_id, CompleteTaskRequest(
+            status=status,
+            result=final_state.get("final_summary", "Task completed."),
+            all_agent_responses=all_agent_responses
+        ))
 
-        #===============================  MIMP section ==========================================
-        result = understand_codebase(selection.folder_path, task.user_query)
-        try:
-            related_files = {}
-            for file in result["related_files"]:
-                related_files[file.path] = file.content
-
-            conversation_history = ""
-            conv_id = task.metadata.get("conversation_id")
-            source_str = "whatsapp" if getattr(task.source, "value", str(task.source)) == "whatsapp" else None
-            
-            conversation_history = await fetch_conversation_history(
-                conversation_id=conv_id,
-                source=source_str,
-                source_id=task.source_id
-            )
-
-            final_result = acess_code_generator(task.user_query, result["skeleton_path"], result["output_dir"], related_files, conversation_history)
-            
-            # Collect structured responses from all agents
-            all_agent_responses = {
-                "CodeUnderstandingAgent": result.get("summary", ""),
-                "CodeGeneratorAgent": final_result.get("generator_output", ""),
-            }
-            
-            # Add TesterAgent output only if it was triggered
-            if final_result.get("test_result"):
-                all_agent_responses["TesterAgent"] = final_result.get("test_result", "")
-
-            # NEW: Generate a concise executive summary using a final LLM pass
-            print("         [info] Generating executive summary...")
-            summary = await summarize_agent_outputs(all_agent_responses, task.user_query)
-
-            await complete_task(task.task_id, CompleteTaskRequest(
-                status=TaskStatus.COMPLETED,
-                result=summary,
-                all_agent_responses=all_agent_responses
-            ))
-
-        except Exception as e:
-            print(f"         [error] Generation/Testing pipeline failed: {e}")
-            await complete_task(task.task_id, CompleteTaskRequest(
-                status=TaskStatus.FAILED,
-                result=f"Processing failed: {str(e)}"
-            ))
-        #=========================================================================================
     except Exception as e:
-        print(f"         [error] LLM routing failed: {e}")
+        print(f"         [error] Pipeline execution failed: {e}")
+        await complete_task(task.task_id, CompleteTaskRequest(
+            status=TaskStatus.FAILED,
+            result=f"Processing failed: {str(e)}"
+        ))
 
 
 async def worker_main():
@@ -225,7 +129,6 @@ async def worker_main():
     # Setup dependencies
     await ensure_consumer_group()
     r = await get_redis()
-    llm_chain = get_llm()
     
     consumer_name = f"worker-{os.getpid()}"
     print(f"[worker] Consumer name: {consumer_name}")
@@ -257,7 +160,7 @@ async def worker_main():
                     try:
                         task = Task.from_stream_payload(payload)
                         projects = await fetch_projects()
-                        await process_task(task, projects, llm_chain)
+                        await process_task(task, projects)
 
                         # Acknowledge the message so it's not redelivered
                         await r.xack(STREAM_NAME, CONSUMER_GROUP, entry_id)

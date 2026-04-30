@@ -4,7 +4,7 @@ code_generator_agent.py – CodeGenerator agent.
 Given a user query and project skeleton JSON, this agent uses file tools
 to write the full code into the output directory.
 """
-
+import os
 import json
 from typing import Any
 
@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 
 from code_generator.src.code_generator.config import code_generator_llm, MAX_AGENT_ITERATIONS
-from code_generator.src.code_generator.tools.file_tools import FILE_TOOLS
+from code_generator.src.code_generator.tools.file_tools import FILE_TOOLS, WORKSPACE_ROOT
 
 
 class CodeGeneratorAgent:
@@ -62,25 +62,31 @@ class CodeGeneratorAgent:
             f"3. RELATED CONTEXT (Read-Only):\nUse these files to understand dependencies/styles. Do NOT modify these unless they are also in the skeleton:\n{context_str}\n\n"
             f"INSTRUCTIONS:\n"
             f"- If a file in the skeleton already exists, READ it first using 'read_file' before updating.\n"
+            f"- For existing files, prefer using 'replace_content' to make targeted changes (partial updates) instead of overwriting the whole file.\n"
             f"- Ensure new code is consistent with the 'Related Context' provided.\n"
-            f"- Use 'create_file' to either overwrite existing files with updated code or create new ones.\n"
+            f"- Use 'create_file' for entirely new files or if a total rewrite is necessary.\n"
             f"- Always implement full, production-ready code. No placeholders.\n"
             f"- Confirm your work with 'list_directory' before finishing.\n"
         )
 
-        result = self.agent.invoke(
-            {"messages": [HumanMessage(content=system_context)]},
-            config={"recursion_limit": MAX_AGENT_ITERATIONS},
-        )
+        # Set the workspace root for the tools to use (ensures paths are relative to output_dir)
+        token = WORKSPACE_ROOT.set(os.path.abspath(output_dir))
+        try:
+            result = self.agent.invoke(
+                {"messages": [HumanMessage(content=system_context)]},
+                config={"recursion_limit": MAX_AGENT_ITERATIONS},
+            )
+        finally:
+            WORKSPACE_ROOT.reset(token)
 
         messages = result.get("messages", [])
         
-        # Track modified files by inspecting tool calls
+        # Track modified files by inspecting tool calls (both create and replace)
         modified_files = set()
         for m in messages:
             if hasattr(m, "tool_calls") and m.tool_calls:
                 for tc in m.tool_calls:
-                    if tc["name"] == "create_file":
+                    if tc["name"] in ["create_file", "replace_content"]:
                         path = tc.get("args", {}).get("path")
                         if path:
                             modified_files.add(path)

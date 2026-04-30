@@ -367,18 +367,26 @@ def load_skeleton(path):
     with open(path, 'r') as f:
         return json.load(f)
     
+from typing import List
 
-def acess_code_generator(query: str, skeleton: str, output_dir: str, related_files: dict, conversation_history: str = ""):
+def acess_code_generator(query: str, projects: List[dict], output_dir: str = "", conversation_history: str = ""):
     from code_generator.src.code_generator.graph import pipeline
 
     initial_state = {
         "user_query": query,
-        "skeleton": load_skeleton(skeleton),
-        "output_dir": output_dir,
-        "related_files": related_files,
+        "projects": projects,
         "conversation_history": conversation_history,
+        "selected_project": None,
+        "selection_reasoning": "",
+        "skeleton_path": "",
+        "output_dir": output_dir,
+        "related_files": {},
+        "understanding_output": "",
         "generator_output": "",
+        "files_modified": [],
         "test_result": "",
+        "final_summary": "",
+        "error": None
     }
 
     final_state = pipeline.invoke(initial_state)

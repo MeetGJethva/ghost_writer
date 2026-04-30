@@ -255,7 +255,7 @@ async def complete_task(task_id: str, body: CompleteTaskRequest) -> TaskStatusRe
         notify=True,
     )
 
-    if body.status == TaskStatus.COMPLETED and task.metadata.get("conversation_id"):
+    if task.metadata.get("conversation_id"):
         from the_orchestrator.gateway.database import AsyncSessionLocal
         import uuid as _uuid
         async with AsyncSessionLocal() as session:
