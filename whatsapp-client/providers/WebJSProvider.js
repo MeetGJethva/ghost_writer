@@ -13,16 +13,40 @@ class WebJSProvider {
     this.client.initialize();
   }
 
+  // Convert standard Markdown to WhatsApp formatting
+  formatMessage(text) {
+    if (!text) return "";
+
+    return text
+      // 1. Headers: ### Header -> *HEADER*
+      .replace(/^#{1,6}\s+(.*)$/gm, (match, p1) => `*${p1.toUpperCase()}*`)
+      // 2. Bold: **text** -> *text*
+      .replace(/\*\*(.*?)\*\*/g, "*$1*")
+      // 3. Bullet points: - item -> • item
+      .replace(/^\s*[-*]\s+/gm, "• ")
+      // 4. Clean up multiple empty lines
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
   // Standardized method to send messages
   async sendMessage(number, message) {
     try {
-      console.log(number);
-      const formattedNumber = number.includes("@c.us")
-        ? number
-        : `${number}@c.us`;
-      const response = await this.client.sendMessage(formattedNumber, message);
+      const formattedMessage = this.formatMessage(message);
+      let chatId = number;
+      if (!chatId.includes("@")) {
+        const numberId = await this.client.getNumberId(chatId);
+        if (numberId) {
+          chatId = numberId._serialized;
+        } else {
+          chatId = `${chatId}@c.us`;
+        }
+      }
+      console.log(`Sending to: ${chatId}`);
+      const response = await this.client.sendMessage(chatId, formattedMessage);
       return { success: true, response };
     } catch (error) {
+      console.error("Error in sendMessage:", error);
       return { success: false, error: error.message };
     }
   }

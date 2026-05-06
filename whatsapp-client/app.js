@@ -12,8 +12,14 @@ const messenger = new MessagingProvider();
 
 messenger.onMessage(async (msg) => {
   try {
-    const rawNumber = msg.from.split("@")[0];
-    console.log("rawNumber: ", msg.from);
+    const contact = await msg.getContact();
+    console.log('Number:', contact.number); // Outputs digits only
+    console.log('Formatted Number:', await contact.getFormattedNumber()); // e.g., +1 (234) 567-890
+
+    // convert to raw number (only digits) - keep country code for replying
+    const rawNumber = (await contact.getFormattedNumber()).replace(/\D/g, "");
+
+    console.log("rawNumber: ", rawNumber);
     const mobileNumber =
       rawNumber.length > 10 ? rawNumber.slice(-10) : rawNumber;
 
@@ -36,7 +42,7 @@ messenger.onMessage(async (msg) => {
     }
 
     const now = new Date();
-    
+
     const payload = {
       query: msg.body,
       source_id: rawNumber,
@@ -57,8 +63,9 @@ messenger.onMessage(async (msg) => {
 // API for sending messages back to user
 app.post("/api/send-message", async (req, res) => {
   try {
+    console.log("body:", req.body);
     const { to, message } = req.body;
-    
+
     if (!to || !message) {
       return res.status(400).json({ error: "Missing 'to' or 'message' in request body" });
     }
@@ -67,7 +74,7 @@ app.post("/api/send-message", async (req, res) => {
     const chatId = to.includes('@') ? to : `${to}@c.us`;
 
     await messenger.sendMessage(chatId, message);
-    
+
     res.json({ success: true, message: "Message sent successfully" });
   } catch (error) {
     console.error("Error sending message:", error.message);
@@ -75,5 +82,5 @@ app.post("/api/send-message", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 8080;
-app.listen(9007, () => console.log(`Service running on port ${PORT}`));
+
+app.listen(9007, () => console.log(`Service running on port ${9007}`));

@@ -136,13 +136,13 @@ async def submit_task(
     if body.source == SourceType.WHATSAPP:
         stmt = select(Conversation).where(
             Conversation.number == body.source_id,
-            Conversation.source == "whatsapp"
+            Conversation.source == "WHATSAPP"
         )
         result = await db.execute(stmt)
         conversation = result.scalars().first()
         
         if not conversation:
-            conversation = Conversation(source="whatsapp", number=body.source_id)
+            conversation = Conversation(source="WHATSAPP", number=body.source_id)
             db.add(conversation)
             await db.commit()
             await db.refresh(conversation)

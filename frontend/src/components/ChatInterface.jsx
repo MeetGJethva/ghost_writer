@@ -376,10 +376,10 @@ export default function ChatInterface() {
                   position: 'relative'
                 }}
               >
-                {conv.source === 'whatsapp' ? <Smartphone size={18} color="#22c55e" /> : <MessageSquare size={18} color="var(--accent-2)" />}
+                {conv.source === 'WHATSAPP' ? <Smartphone size={18} color="#22c55e" /> : <MessageSquare size={18} color="var(--accent-2)" />}
                 <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
                   <span style={{ fontSize: '0.9rem', fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                    {conv.source === 'whatsapp' ? conv.number : 'Web Session'}
+                    {conv.source === 'WHATSAPP' ? conv.number : 'Web Session'}
                   </span>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                     {conv.id.substring(0, 8)}...
@@ -455,7 +455,7 @@ export default function ChatInterface() {
           <>
             <div className="chat-messages">
               {messages.map((msg) => (
-                <div key={msg.id} className={`message-wrapper ${msg.is_from_agent ? 'agent' : 'user'} ${msg.source === 'whatsapp' ? 'whatsapp' : ''}`}>
+                <div key={msg.id} className={`message-wrapper ${msg.is_from_agent ? 'agent' : 'user'} ${msg.source === 'WHATSAPP' ? 'whatsapp' : ''}`}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
                     {msg.is_from_agent && (
                       <div style={{ marginTop: '0.25rem', color: 'var(--accent-1)' }}>
@@ -524,7 +524,7 @@ export default function ChatInterface() {
                       )}
                     </div>
                     {!msg.is_from_agent && (
-                      <div style={{ marginTop: '0.25rem', color: msg.source === 'whatsapp' ? '#22c55e' : 'var(--text-muted)' }}>
+                      <div style={{ marginTop: '0.25rem', color: msg.source === 'WHATSAPP' ? '#22c55e' : 'var(--text-muted)' }}>
                         <User size={24} />
                       </div>
                     )}
