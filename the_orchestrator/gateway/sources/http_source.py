@@ -53,6 +53,10 @@ class SubmitTaskRequest(BaseModel):
         None,
         description="Optional conversation ID for extending an existing thread. Used if not from whatsapp.",
     )
+    project_id: str | None = Field(
+        None,
+        description="Optional project ID to associate with the task and chat history.",
+    )
 
 
 class SubmitTaskResponse(BaseModel):
@@ -86,6 +90,7 @@ class ChatHistoryMessageResponse(BaseModel):
     all_agent_responses: dict[str, Any] | None = None
     timestamp: str  
     file_changes: list[FileChangeResponse] = []
+    project_id: str | None = None
 
 class ConversationResponse(BaseModel):
     id: str
@@ -100,6 +105,10 @@ class CompleteTaskRequest(BaseModel):
     completion_time: datetime | None = Field(
         None,
         description="When the task finished (defaults to now if omitted)",
+    )
+    project_id: str | None = Field(
+        None,
+        description="Project ID determined by the worker",
     )
 
 
@@ -154,10 +163,18 @@ async def submit_task(
             await db.refresh(conversation)
 
     # Create entry in chat history
+    proj_uuid = None
+    if body.project_id:
+        try:
+            proj_uuid = uuid.UUID(body.project_id)
+        except ValueError:
+            pass
+
     chat_entry = ChatHistory(
         conversation_id=conversation.id,
         message=body.query,
-        is_from_agent=False
+        is_from_agent=False,
+        project_id=proj_uuid
     )
     db.add(chat_entry)
     await db.commit()
@@ -172,13 +189,16 @@ async def submit_task(
             "source": conversation.source,
             "message": body.query,
             "timestamp": chat_entry.created_at.strftime("%I:%M %p"),
-            "file_changes": []
+            "file_changes": [],
+            "project_id": str(chat_entry.project_id) if chat_entry.project_id else None
         }
     })
 
     # Ensure task metadata knows about the DB records so workers can reference them
     body.metadata["conversation_id"] = str(conversation.id)
     body.metadata["chat_history_id"] = str(chat_entry.id)
+    if proj_uuid:
+        body.metadata["project_id"] = str(proj_uuid)
 
     task = Task(
         source=body.source,
@@ -261,11 +281,22 @@ async def complete_task(task_id: str, body: CompleteTaskRequest) -> TaskStatusRe
         async with AsyncSessionLocal() as session:
             try:
                 conv_id = _uuid.UUID(task.metadata["conversation_id"])
+                proj_id_str = body.project_id or task.metadata.get("project_id")
+                
+                # Update user message project_id if not set
+                if proj_id_str and task.metadata.get("chat_history_id"):
+                    user_msg_stmt = select(ChatHistory).where(ChatHistory.id == _uuid.UUID(task.metadata["chat_history_id"]))
+                    user_msg_result = await session.execute(user_msg_stmt)
+                    user_msg = user_msg_result.scalars().first()
+                    if user_msg and not user_msg.project_id:
+                        user_msg.project_id = _uuid.UUID(proj_id_str)
+
                 agent_msg = ChatHistory(
                     conversation_id=conv_id,
                     message=body.result or "Task completed.",
                     all_agent_responses=body.all_agent_responses,
-                    is_from_agent=True
+                    is_from_agent=True,
+                    project_id=_uuid.UUID(proj_id_str) if proj_id_str else None
                 )
                 session.add(agent_msg)
                 await session.commit()
@@ -281,7 +312,8 @@ async def complete_task(task_id: str, body: CompleteTaskRequest) -> TaskStatusRe
                             "message": agent_msg.message,
                             "all_agent_responses": agent_msg.all_agent_responses,
                             "timestamp": agent_msg.created_at.strftime("%I:%M %p"),
-                            "file_changes": []
+                            "file_changes": [],
+                            "project_id": str(agent_msg.project_id) if agent_msg.project_id else None
                         }
                 })
             except Exception as e:
@@ -353,7 +385,8 @@ async def get_conversation_history(conversation_id: str, db: AsyncSession = Depe
             message=msg.message,
             all_agent_responses=msg.all_agent_responses,
             timestamp=msg.created_at.strftime("%I:%M %p"),
-            file_changes=file_changes
+            file_changes=file_changes,
+            project_id=str(msg.project_id) if msg.project_id else None
         ))
     return response
 

@@ -108,10 +108,14 @@ async def process_task(task: Task, projects: List[Project]):
         
         status = TaskStatus.COMPLETED if not final_state.get("error") else TaskStatus.FAILED
         
+        selected_project = final_state.get("selected_project")
+        found_project_id = str(selected_project["id"]) if selected_project else None
+        
         await complete_task(task.task_id, CompleteTaskRequest(
             status=status,
             result=final_state.get("final_summary", "Task completed."),
-            all_agent_responses=all_agent_responses
+            all_agent_responses=all_agent_responses,
+            project_id=found_project_id
         ))
 
     except Exception as e:
