@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from the_orchestrator.gateway.database import get_db
 from the_orchestrator.gateway.models.db_models import Project
 
-router = APIRouter(prefix="/projects", tags=["projects"])
+router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +76,36 @@ async def register_project(
     await db.commit()
     await db.refresh(project)
     return project
+
+
+class SuccessResponse(BaseModel):
+    success: bool
+    message: str | None = None
+
+
+@router.delete(
+    "/{project_id}",
+    response_model=SuccessResponse,
+    summary="Delete a project"
+)
+async def delete_project(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(Project).where(Project.id == project_id)
+    result = await db.execute(stmt)
+    project = result.scalar_one_or_none()
+    
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project '{project_id}' not found.",
+        )
+    
+    await db.delete(project)
+    await db.commit()
+    
+    return SuccessResponse(success=True, message="Project deleted successfully")
 
 
 @router.get(
