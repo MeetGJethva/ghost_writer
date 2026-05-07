@@ -34,7 +34,7 @@ Ghost Writer follows a micro-agent architecture, where specialized components co
 ## 🛠️ Tech Stack
 
 *   **Backend**: Python 3.11+, FastAPI, LangChain, SQLAlchemy, Pydantic.
-*   **AI/LLM**: OpenAI GPT-4o, Groq (Llama-3), LangGraph.
+*   **AI/LLM**: Groq (Llama-3), LangGraph.
 *   **Frontend**: React, Vite, JavaScript.
 *   **Database**: PostgreSQL, Redis (Task Queue & Caching).
 *   **Tooling**: `uv` (Python), `npm` (Frontend), Docker Compose.
