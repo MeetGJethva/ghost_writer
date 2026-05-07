@@ -153,34 +153,52 @@ def create_directory(path: str) -> str:
 
 
 @tool
-def replace_content(path: str, search: str, replace: str) -> str:
+def replace_multiple_contents(path: str, replacements: list[dict]) -> str:
     """
-    Find a specific string (search) in the file at the given path and replace it with new content (replace).
-    This is best for updating specific parts of a large file without rewriting it entirely.
+    Find and replace multiple strings in a single file in one operation.
     
     Args:
         path: Relative path to the file within the project.
-        search: The exact text to look for (must match identically).
-        replace: The text to insert instead.
+        replacements: A list of dicts, each containing 'search' and 'replace' keys.
+                      Example: [{"search": "old_text", "replace": "new_text"}, ...]
         
     Returns:
-        Confirmation message or error if search text isn't found.
+        Confirmation message detailing how many replacements were successful.
     """
     try:
         target = resolve_path(path)
         if not target.exists():
-            return f"❌ Error: File '{path}' does not exist (resolved to {target})."
+            return f"❌ Error: File '{path}' does not exist."
         
         content = target.read_text(encoding="utf-8")
-        if search not in content:
-            return f"❌ Error: Search text not found in '{path}'. Make sure it matches exactly including whitespace."
+        original_content = content
+        success_count = 0
+        missing_snippets = []
+
+        for item in replacements:
+            search_str = item.get("search")
+            replace_str = item.get("replace")
             
-        new_content = content.replace(search, replace, 1) # Only replace first occurrence to be safer
-        target.write_text(new_content, encoding="utf-8")
-        return f"✅ Replaced content in '{path}'."
+            if search_str in content:
+                # Replace the first occurrence of this specific snippet
+                content = content.replace(search_str, replace_str, 1)
+                success_count += 1
+            else:
+                missing_snippets.append(search_str)
+
+        if missing_snippets:
+            error_msg = f"⚠️ Partial success. Applied {success_count} updates, but could not find {len(missing_snippets)} snippets: "
+            error_msg += ", ".join([f"'{s[:20]}...'" for s in missing_snippets])
+            # Even with partial failure, we save what we successfully matched
+            target.write_text(content, encoding="utf-8")
+            return error_msg
+
+        target.write_text(content, encoding="utf-8")
+        return f"✅ Successfully applied all {success_count} replacements in '{path}'."
+
     except Exception as e:
-        return f"❌ Error replacing content in '{path}': {e}"
+        return f"❌ Error processing replacements in '{path}': {e}"
 
 
 # Exported list of tools for the CodeGenerator agent
-FILE_TOOLS = [create_file, read_file, list_directory, create_directory, replace_content]
+FILE_TOOLS = [create_file, read_file, list_directory, create_directory, replace_multiple_contents]
