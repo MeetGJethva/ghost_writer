@@ -58,19 +58,42 @@ def create_file(path: str, content: str) -> str:
 
 
 @tool
-def read_file(path: str) -> str:
+def read_file(path: str, start_line: int = None, end_line: int = None) -> str:
     """
     Read and return the contents of a file.
+    Supports optional chunk reading via start_line and end_line (1-indexed, inclusive).
+    If neither is provided, the full file content is returned.
 
     Args:
         path: Relative path to the file within the project.
+        start_line: Optional 1-indexed start line to read from (inclusive).
+        end_line: Optional 1-indexed end line to read up to (inclusive).
 
     Returns:
-        The file content as a string, or an error message.
+        The file content (or requested chunk) as a string, or an error message.
     """
     try:
         target = resolve_path(path)
-        return target.read_text(encoding="utf-8")
+        content = target.read_text(encoding="utf-8")
+
+        if start_line is not None or end_line is not None:
+            lines = content.splitlines(keepends=True)
+            total_lines = len(lines)
+
+            # Default start_line to 1 and end_line to total_lines if not set
+            sl = max(1, start_line if start_line is not None else 1)
+            el = min(total_lines, end_line if end_line is not None else total_lines)
+
+            if sl > total_lines:
+                return f"❌ start_line ({sl}) exceeds total lines ({total_lines}) in '{path}'."
+            if sl > el:
+                return f"❌ start_line ({sl}) is greater than end_line ({el})."
+
+            chunk = lines[sl - 1 : el]
+            header = f"[Lines {sl}-{el} of {total_lines} in '{path}']\n"
+            return header + "".join(chunk)
+
+        return content
     except FileNotFoundError:
         return f"❌ File not found: '{path}' (resolved to {resolve_path(path)})"
     except Exception as e:

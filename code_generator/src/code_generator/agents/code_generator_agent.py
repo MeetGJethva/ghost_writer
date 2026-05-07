@@ -53,6 +53,11 @@ class CodeGeneratorAgent:
         # Format the related files into a readable string for the System Prompt
         context_str = "\n---\n".join([f"FILE: {p}\nCONTENT:\n{c}" for p, c in related_files.items()])
 
+        # Build a list of file paths whose content is already available in the prompt
+        preloaded_paths = list(related_files.keys())
+
+        preloaded_paths_str = "\n".join([f"  - {p}" for p in preloaded_paths])
+
         system_context = (
             f"You are an expert Senior Software Engineer capable of updating existing codebases.\n\n"
             f"WORKING DIRECTORY: {output_dir}\n\n"
@@ -60,8 +65,14 @@ class CodeGeneratorAgent:
             f"1. CORE TASK:\n{user_query}\n\n"
             f"2. TARGET FILES (Skeleton):\nUse this to identify which files to create or modify:\n{skeleton_str}\n\n"
             f"3. RELATED CONTEXT (Read-Only):\nUse these files to understand dependencies/styles. Do NOT modify these unless they are also in the skeleton:\n{context_str}\n\n"
+            f"IMPORTANT — PRE-LOADED FILES (DO NOT READ AGAIN):\n"
+            f"The full content of the following files has ALREADY been provided above in the 'Related Context' and/or 'Target Files' sections. "
+            f"You MUST NOT call 'read_file' for any of these files — their content is already available to you in this prompt. "
+            f"Using 'read_file' on them would be redundant and waste time:\n{preloaded_paths_str}\n\n"
             f"INSTRUCTIONS:\n"
-            f"- If a file in the skeleton already exists, READ it first using 'read_file' before updating.\n"
+            f"- NEVER use 'read_file' for files listed in PRE-LOADED FILES above. You already have their full content.\n"
+            f"- Only use 'read_file' for files NOT listed above that you need to inspect (e.g., other project files for additional context). "
+            f"For large files, use the start_line and end_line parameters to read only the relevant chunk.\n"
             f"- For existing files, prefer using 'replace_content' to make targeted changes (partial updates) instead of overwriting the whole file.\n"
             f"- Ensure new code is consistent with the 'Related Context' provided.\n"
             f"- Use 'create_file' for entirely new files or if a total rewrite is necessary.\n"

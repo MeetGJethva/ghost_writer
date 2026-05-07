@@ -10,6 +10,7 @@ from typing import Any, TypedDict, List, Optional
 
 from langgraph.graph import StateGraph, START, END
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
 
@@ -27,6 +28,19 @@ class SelectedProject(BaseModel):
     project_name: Optional[str] = Field(default=None, description="The name of the selected project, or None if no project matches.")
     folder_path: Optional[str] = Field(default=None, description="The absolute folder path of the selected project, or None if no project matches.")
     reasoning: str = Field(description="Brief explanation of why this project was selected, or a natural response to the user's query if no project is matched.")
+
+
+class QueryIntent(BaseModel):
+    """Classifies whether a user query requires code modifications or is just a question."""
+    requires_code_change: bool = Field(
+        description=(
+            "True if the user is requesting code to be written, modified, created, deleted, "
+            "refactored, or updated in any way. False if the user is asking a question about "
+            "the codebase, seeking an explanation, asking how something works, or requesting "
+            "information without any code changes."
+        )
+    )
+    reasoning: str = Field(description="Brief explanation of why this was classified as a code change or a question.")
 
 
 # ── Shared pipeline state ─────────────────────────────────────────────────────
@@ -47,6 +61,9 @@ class PipelineState(TypedDict):
     output_dir: str
     related_files: dict[str, str]
     understanding_output: str
+    
+    # Intent classification
+    requires_code_change: bool
     
     # Generation
     generator_output: str
@@ -69,7 +86,7 @@ def orchestrator_node(state: PipelineState) -> PipelineState:
 
     try:
         llm = ChatGroq(
-            model_name="llama-3.1-8b-instant", 
+            model_name="llama-3.3-70b-versatile", 
             groq_api_key=os.getenv("GROQ_API_KEY"),
             temperature=0,
         ).with_structured_output(SelectedProject)
@@ -119,9 +136,45 @@ def orchestrator_node(state: PipelineState) -> PipelineState:
         return {**state, "error": f"Orchestrator failed: {str(e)}"}
 
 
+def _classify_intent(user_query: str, conversation_history: str) -> QueryIntent:
+    """
+    Classify whether the user query requires code changes or is just a question.
+    """
+    llm = ChatGroq(
+        model_name="llama-3.3-70b-versatile",
+        groq_api_key=os.getenv("GROQ_API_KEY"),
+        temperature=0,
+    ).with_structured_output(QueryIntent)
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", (
+            "You are an intent classifier. Determine whether the user's query requires "
+            "modifications to the codebase (writing, editing, creating, deleting, or refactoring code) "
+            "or is simply a question seeking information/explanation about the codebase.\n\n"
+            "Examples of QUESTIONS (requires_code_change = false):\n"
+            "- 'How does the authentication flow work?'\n"
+            "- 'What does the UserService class do?'\n"
+            "- 'Explain the database schema'\n"
+            "- 'Where is the cart logic implemented?'\n"
+            "- 'What API endpoints are available?'\n\n"
+            "Examples of CODE CHANGES (requires_code_change = true):\n"
+            "- 'Add a delete button to the cart page'\n"
+            "- 'Fix the bug in the login function'\n"
+            "- 'Refactor the payment service'\n"
+            "- 'Create a new API endpoint for orders'\n"
+            "- 'Update the database model to include email'\n\n"
+            "CONVERSATION HISTORY:\n{history}\n"
+        )),
+        ("user", "{query}"),
+    ])
+
+    chain = prompt | llm
+    return chain.invoke({"query": user_query, "history": conversation_history})
+
+
 def understander_node(state: PipelineState) -> PipelineState:
     """
-    Node 1: Analyze the project codebase.
+    Node 1: Analyze the project codebase and classify intent.
     """
     if state.get("error") or not state.get("selected_project"):
         return state
@@ -138,12 +191,20 @@ def understander_node(state: PipelineState) -> PipelineState:
         for file in result["related_files"]:
             related_files[file.path] = file.content
 
+        # Classify whether the query needs code changes
+        intent = _classify_intent(
+            state["user_query"],
+            state.get("conversation_history", "")
+        )
+        print(f"🧠  Intent: requires_code_change={intent.requires_code_change} | {intent.reasoning}")
+
         return {
             **state,
             "skeleton_path": result["skeleton_path"],
             "output_dir": result["output_dir"],
             "related_files": related_files,
-            "understanding_output": result.get("summary", "")
+            "understanding_output": result.get("summary", ""),
+            "requires_code_change": intent.requires_code_change,
         }
     except Exception as e:
         return {**state, "error": f"Understander failed: {str(e)}"}
@@ -227,11 +288,11 @@ def summarizer_node(state: PipelineState) -> PipelineState:
         llm = get_llm(temperature=0.3)
         
         if state.get("error"):
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", "You are a helpful assistant. Explain that an error occurred during the technical process and summarize what was attempted."),
-                ("user", f"Task: {state['user_query']}\nError: {state['error']}\nPhase reached: {state.get('selection_reasoning', 'None')}")
-            ])
-            summary = llm.invoke(prompt.format_messages()).content
+            messages = [
+                SystemMessage(content="You are a helpful assistant. Explain that an error occurred during the technical process and summarize what was attempted."),
+                HumanMessage(content=f"Task: {state['user_query']}\nError: {state['error']}\nPhase reached: {state.get('selection_reasoning', 'None')}")
+            ]
+            summary = llm.invoke(messages).content
             return {**state, "final_summary": summary}
 
         agent_responses = {}
@@ -247,20 +308,47 @@ def summarizer_node(state: PipelineState) -> PipelineState:
         for agent, resp in agent_responses.items():
             responses_str += f"\n\n### {agent}\n{resp}"
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", (
-                "You are a Senior Project Manager summarizing the work of an AI engineer team.\n"
-                "Provide a concise, professional summary of the work performed.\n"
-                "SYNTHESIS REQUIREMENTS:\n"
-                "- Acknowledge the core task completion.\n"
-                "- Mention key files modified or created.\n"
-                "- Use clean Markdown.\n"
-                "- Keep it between 3-5 sentences.\n"
-            )),
-            ("user", f"**USER REQUEST:** {state['user_query']}\n\n**AGENT WORK LOGS:**{responses_str}"),
-        ])
+        # Use different prompts for question-only vs code-change flows
+        is_question_only = not state.get("requires_code_change", True)
+
+        if is_question_only:
+            # Question-only flow: answer the question using file context
+            related_files = state.get("related_files", {})
+            files_context = "\n---\n".join([f"FILE: {p}\nCONTENT:\n{c}" for p, c in related_files.items()])
+
+            messages = [
+                SystemMessage(content=(
+                    "You are a Senior Software Engineer answering a developer's question about a codebase.\n"
+                    "Use the provided file contents to give a clear, accurate, and helpful answer.\n\n"
+                    "RESPONSE REQUIREMENTS:\n"
+                    "- Directly answer the question using information from the codebase.\n"
+                    "- Reference specific files, functions, classes, or lines when relevant.\n"
+                    "- Use clean Markdown formatting.\n"
+                    "- Be concise but thorough.\n"
+                    "- If the provided files don't contain enough information to fully answer, say so.\n"
+                )),
+                HumanMessage(content=(
+                    f"**QUESTION:** {state['user_query']}\n\n"
+                    f"**RELEVANT FILES:**\n{files_context}\n\n"
+                    f"**CODEBASE SUMMARY:**{responses_str}"
+                )),
+            ]
+        else:
+            # Code-change flow: summarize the work done
+            messages = [
+                SystemMessage(content=(
+                    "You are a Senior Project Manager summarizing the work of an AI engineer team.\n"
+                    "Provide a concise, professional summary of the work performed.\n"
+                    "SYNTHESIS REQUIREMENTS:\n"
+                    "- Acknowledge the core task completion.\n"
+                    "- Mention key files modified or created.\n"
+                    "- Use clean Markdown.\n"
+                    "- Keep it between 3-5 sentences.\n"
+                )),
+                HumanMessage(content=f"**USER REQUEST:** {state['user_query']}\n\n**AGENT WORK LOGS:**{responses_str}"),
+            ]
         
-        result = llm.invoke(prompt.format_messages())
+        result = llm.invoke(messages)
         return {**state, "final_summary": result.content}
 
     except Exception as e:
@@ -276,6 +364,17 @@ def route_after_orchestrator(state: PipelineState) -> str:
     if not state.get("selected_project"):
         return "summarizer"
     return "understander"
+
+
+def route_after_understander(state: PipelineState) -> str:
+    """Route based on intent: questions skip the code generator."""
+    if state.get("error"):
+        return "summarizer"
+    if not state.get("requires_code_change", True):
+        print("📋  Question-only query — skipping code generator, going to summarizer.")
+        return "summarizer"
+    return "code_generator"
+
 
 # ── Build the graph ───────────────────────────────────────────────────────────
 
@@ -301,7 +400,7 @@ def build_graph() -> StateGraph:
 
     builder.add_conditional_edges(
         "understander",
-        lambda x: "summarizer" if x.get("error") else "code_generator",
+        route_after_understander,
         {"summarizer": "summarizer", "code_generator": "code_generator"}
     )
 

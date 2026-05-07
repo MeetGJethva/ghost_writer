@@ -234,11 +234,13 @@ class ProjectIndexer:
 
             # Peek at first lines for role detection
             try:
-                peek = "\n".join(abs_path.read_text(errors="ignore").splitlines()[:ROLE_PEEK_LINES])
+                content = abs_path.read_text(errors="ignore")
+                lines = content.splitlines()
+                peek = "\n".join(lines[:ROLE_PEEK_LINES])
+                size_lines = len(lines)
             except OSError:
                 peek = ""
-
-            size_lines = peek.count("\n") + 1
+                size_lines = 0
 
             role = _detect_role(rel_path=rel, symbols=symbols, peek=peek, imports=raw_imports)
 
