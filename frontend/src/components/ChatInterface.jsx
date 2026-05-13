@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Bot, User, Code, FileText, Send, X, Smartphone, Plus, MessageSquare, Trash2, Folder, ChevronDown, ChevronRight, Layout } from 'lucide-react';
+import { Bot, User, Code, FileText, Send, X, Smartphone, Plus, MessageSquare, Trash2, Folder, ChevronDown, ChevronRight, Layout, Activity, CheckCircle, Clock, AlertCircle, RefreshCw, ListTodo } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import MarkdownRenderer from './MarkdownRenderer';
+import TasksView from './TasksView';
 
 const API_BASE = 'http://localhost:3300/api';
 const WS_BASE = 'ws://localhost:3300/ws';
@@ -24,6 +21,11 @@ export default function ChatInterface() {
   const [projects, setProjects] = useState([]);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [newProject, setNewProject] = useState({ name: '', description: '', keywords: '', folder_path: '' });
+
+  const [tasks, setTasks] = useState([]);
+  const [taskFilter, setTaskFilter] = useState('all'); // all, PENDING, PROCESSING, COMPLETED, FAILED
+  const [isFetchingTasks, setIsFetchingTasks] = useState(false);
+  const [expandedTasks, setExpandedTasks] = useState({}); // map of task.task_id -> bool
 
   const messagesEndRef = useRef(null);
   const wsRef = useRef(null);
@@ -74,10 +76,36 @@ export default function ChatInterface() {
     }
   };
 
+  const fetchTasks = async () => {
+    setIsFetchingTasks(true);
+    try {
+      const res = await fetch(`${API_BASE}/tasks`);
+      const data = await res.json();
+      setTasks(data);
+    } catch (err) {
+      console.error('Failed to fetch tasks', err);
+    } finally {
+      setIsFetchingTasks(false);
+    }
+  };
+
   useEffect(() => {
     fetchConversations();
     fetchProjects();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'tasks') {
+      fetchTasks();
+    }
+  }, [activeTab]);
+
+  const toggleTaskExpand = (taskId) => {
+    setExpandedTasks(prev => ({
+      ...prev,
+      [taskId]: !prev[taskId]
+    }));
+  };
 
   useEffect(() => {
     if (!activeConversationId) {
@@ -254,36 +282,6 @@ export default function ChatInterface() {
     );
   };
 
-  const MarkdownRenderer = ({ content }) => {
-    if (!content) return null;
-    return (
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks]}
-        components={{
-          code({ node, inline, className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || '');
-            return !inline && match ? (
-              <SyntaxHighlighter
-                style={atomDark}
-                language={match[1]}
-                PreTag="div"
-                className="rounded-md my-2"
-                {...props}
-              >
-                {String(children).replace(/\n$/, '')}
-              </SyntaxHighlighter>
-            ) : (
-              <code className={`${className} bg-slate-800 px-1 rounded`} {...props}>
-                {children}
-              </code>
-            );
-          }
-        }}
-      >
-        {String(content).replace(/\\n/g, '\n')}
-      </ReactMarkdown>
-    );
-  };
 
   return (
     <div className="app-container" style={{ position: 'relative', background: '#0a0f1d' }}>
@@ -296,28 +294,39 @@ export default function ChatInterface() {
             Orchestrator
           </h2>
           
-          <div className="tab-switcher" style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '12px' }}>
+          <div className="tab-switcher" style={{ display: 'flex', gap: '0.35rem', marginBottom: '1rem', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '12px' }}>
             <button 
               onClick={() => setActiveTab('chats')}
               style={{ 
-                flex: 1, padding: '0.5rem', borderRadius: '8px', border: 'none', 
+                flex: 1, padding: '0.5rem 0.25rem', borderRadius: '8px', border: 'none', 
                 background: activeTab === 'chats' ? 'rgba(255,255,255,0.1)' : 'transparent',
                 color: activeTab === 'chats' ? 'white' : 'var(--text-muted)', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontSize: '0.85rem'
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', fontSize: '0.8rem'
               }}
             >
-              <MessageSquare size={16} /> Chats
+              <MessageSquare size={14} /> Chats
             </button>
             <button 
               onClick={() => setActiveTab('projects')}
               style={{ 
-                flex: 1, padding: '0.5rem', borderRadius: '8px', border: 'none', 
+                flex: 1, padding: '0.5rem 0.25rem', borderRadius: '8px', border: 'none', 
                 background: activeTab === 'projects' ? 'rgba(255,255,255,0.1)' : 'transparent',
                 color: activeTab === 'projects' ? 'white' : 'var(--text-muted)', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontSize: '0.85rem'
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', fontSize: '0.8rem'
               }}
             >
-              <Folder size={16} /> Projects
+              <Folder size={14} /> Projects
+            </button>
+            <button 
+              onClick={() => setActiveTab('tasks')}
+              style={{ 
+                flex: 1, padding: '0.5rem 0.25rem', borderRadius: '8px', border: 'none', 
+                background: activeTab === 'tasks' ? 'rgba(255,255,255,0.1)' : 'transparent',
+                color: activeTab === 'tasks' ? 'white' : 'var(--text-muted)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', fontSize: '0.8rem'
+              }}
+            >
+              <Activity size={14} /> Tasks
             </button>
           </div>
 
@@ -359,83 +368,146 @@ export default function ChatInterface() {
               Register Project
             </button>
           )}
+
+          {activeTab === 'tasks' && (
+            <>
+              <button
+                onClick={fetchTasks}
+                disabled={isFetchingTasks}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                  padding: '0.75rem', background: 'var(--accent-1)', color: 'white', border: 'none',
+                  borderRadius: '12px', cursor: 'pointer', fontWeight: 500, fontSize: '0.95rem', transition: 'background 0.2s',
+                  opacity: isFetchingTasks ? 0.7 : 1
+                }}
+              >
+                <RefreshCw size={16} className={isFetchingTasks ? 'spin-animation' : ''} />
+                Refresh Tracker
+              </button>
+
+              <div style={{ marginTop: '1.5rem', marginBottom: '1rem' }}>
+                <h3 style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.75rem', letterSpacing: '0.05em' }}>Status Filter</h3>
+                <div className="toggle-group">
+                  <button className={`toggle-btn ${taskFilter === 'all' ? 'active' : ''}`} onClick={() => setTaskFilter('all')}>All</button>
+                  <button className={`toggle-btn ${taskFilter === 'PENDING' ? 'active' : ''}`} onClick={() => setTaskFilter('PENDING')}>Pending</button>
+                  <button className={`toggle-btn ${taskFilter === 'COMPLETED' ? 'active' : ''}`} onClick={() => setTaskFilter('COMPLETED')}>Done</button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }} className="chat-messages">
-          {activeTab === 'chats' ? (
-            filteredConversations.map(conv => (
-              <div
-                key={conv.id}
-                onClick={() => setActiveConversationId(conv.id)}
-                className="conversation-item"
+          {activeTab === 'chats' && filteredConversations.map(conv => (
+            <div
+              key={conv.id}
+              onClick={() => setActiveConversationId(conv.id)}
+              className="conversation-item"
+              style={{
+                padding: '0.75rem 1rem', borderRadius: '12px',
+                background: activeConversationId === conv.id ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                border: activeConversationId === conv.id ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent',
+                cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.75rem',
+                position: 'relative'
+              }}
+            >
+              {conv.source === 'WHATSAPP' ? <Smartphone size={18} color="#22c55e" /> : <MessageSquare size={18} color="var(--accent-2)" />}
+              <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
+                <span style={{ fontSize: '0.9rem', fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                  {conv.source === 'WHATSAPP' ? conv.number : 'Web Session'}
+                </span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {conv.id.substring(0, 8)}...
+                </span>
+              </div>
+              <button
+                onClick={(e) => handleDeleteConversation(e, conv.id)}
+                className="delete-conv-btn"
                 style={{
-                  padding: '0.75rem 1rem', borderRadius: '12px',
-                  background: activeConversationId === conv.id ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                  border: activeConversationId === conv.id ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent',
-                  cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.75rem',
-                  position: 'relative'
+                  background: 'none', border: 'none', color: 'var(--text-muted)',
+                  cursor: 'pointer', padding: '4px', borderRadius: '4px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'color 0.2s, background 0.2s'
                 }}
               >
-                {conv.source === 'WHATSAPP' ? <Smartphone size={18} color="#22c55e" /> : <MessageSquare size={18} color="var(--accent-2)" />}
-                <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
-                  <span style={{ fontSize: '0.9rem', fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                    {conv.source === 'WHATSAPP' ? conv.number : 'Web Session'}
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    {conv.id.substring(0, 8)}...
-                  </span>
-                </div>
-                <button
-                  onClick={(e) => handleDeleteConversation(e, conv.id)}
-                  className="delete-conv-btn"
-                  style={{
-                    background: 'none', border: 'none', color: 'var(--text-muted)',
-                    cursor: 'pointer', padding: '4px', borderRadius: '4px',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'color 0.2s, background 0.2s'
-                  }}
-                >
-                  <Trash2 size={16} />
-                </button>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+
+          {activeTab === 'projects' && projects.map(proj => (
+            <div
+              key={proj.id}
+              className="conversation-item"
+              style={{
+                padding: '0.75rem 1rem', borderRadius: '12px',
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid var(--glass-border)',
+                cursor: 'default', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.75rem',
+                position: 'relative'
+              }}
+            >
+              <Folder size={18} color="var(--accent-2)" />
+              <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
+                <span style={{ fontSize: '0.9rem', fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                  {proj.name}
+                </span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                  {proj.folder_path}
+                </span>
               </div>
-            ))
-          ) : (
-            projects.map(proj => (
-              <div
-                key={proj.id}
-                className="conversation-item"
+              <button
+                onClick={(e) => handleDeleteProject(e, proj.id)}
+                className="delete-conv-btn"
                 style={{
-                  padding: '0.75rem 1rem', borderRadius: '12px',
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid var(--glass-border)',
-                  cursor: 'default', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.75rem',
-                  position: 'relative'
+                  background: 'none', border: 'none', color: 'var(--text-muted)',
+                  cursor: 'pointer', padding: '4px', borderRadius: '4px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'color 0.2s, background 0.2s'
                 }}
               >
-                <Folder size={18} color="var(--accent-2)" />
-                <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
-                  <span style={{ fontSize: '0.9rem', fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                    {proj.name}
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                    {proj.folder_path}
-                  </span>
-                </div>
-                <button
-                  onClick={(e) => handleDeleteProject(e, proj.id)}
-                  className="delete-conv-btn"
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+
+          {activeTab === 'tasks' && tasks
+            .filter(t => {
+              if (taskFilter === 'all') return true;
+              if (taskFilter === 'PENDING') return t.status === 'PENDING' || t.status === 'PROCESSING';
+              if (taskFilter === 'COMPLETED') return t.status === 'COMPLETED' || t.status === 'FAILED';
+              return t.status === taskFilter;
+            })
+            .map(task => {
+              const isDone = task.status === 'COMPLETED' || task.status === 'FAILED';
+              return (
+                <div
+                  key={task.task_id}
+                  className="conversation-item"
                   style={{
-                    background: 'none', border: 'none', color: 'var(--text-muted)',
-                    cursor: 'pointer', padding: '4px', borderRadius: '4px',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'color 0.2s, background 0.2s'
+                    padding: '0.75rem 1rem', borderRadius: '12px',
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid var(--glass-border)',
+                    cursor: 'default', display: 'flex', alignItems: 'center', gap: '0.75rem',
                   }}
                 >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            ))
-          )}
+                  {task.status === 'COMPLETED' && <CheckCircle size={16} color="#10b981" />}
+                  {task.status === 'FAILED' && <AlertCircle size={16} color="#ef4444" />}
+                  {task.status === 'PENDING' && <Clock size={16} color="#3b82f6" />}
+                  {task.status === 'PROCESSING' && <RefreshCw size={16} color="#f59e0b" className="spin-animation" />}
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', color: isDone ? '#94a3b8' : '#f8fafc' }}>
+                      {task.user_query}
+                    </span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      {new Date(task.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} &middot; <span style={{ textTransform: 'uppercase', fontSize: '0.65rem', color: task.status === 'COMPLETED' ? '#10b981' : task.status === 'FAILED' ? '#ef4444' : '#3b82f6' }}>{task.status}</span>
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          }
         </div>
       </div>
 
@@ -443,15 +515,19 @@ export default function ChatInterface() {
         <div className="chat-header">
           <div>
             <h1 style={{ fontSize: '1.25rem', fontWeight: 600 }}>
-              {activeTab === 'projects' ? 'Project Management' : (activeConversationId ? 'Project Chat' : 'New Conversation')}
+              {activeTab === 'projects' && 'Project Management'}
+              {activeTab === 'chats' && (activeConversationId ? 'Project Chat' : 'New Conversation')}
+              {activeTab === 'tasks' && 'Redis Task Monitor'}
             </h1>
             <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              {activeTab === 'projects' ? `${projects.length} registered projects` : `${messages.length} messages`}
+              {activeTab === 'projects' && `${projects.length} registered projects`}
+              {activeTab === 'chats' && `${messages.length} messages`}
+              {activeTab === 'tasks' && `${tasks.length} total tasks tracked`}
             </span>
           </div>
         </div>
 
-        {activeTab === 'chats' ? (
+        {activeTab === 'chats' && (
           <>
             <div className="chat-messages">
               {messages.map((msg) => (
@@ -559,7 +635,9 @@ export default function ChatInterface() {
               </button>
             </div>
           </>
-        ) : (
+        )}
+
+        {activeTab === 'projects' && (
           <div className="project-grid" style={{ padding: '2rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem', overflowY: 'auto' }}>
             {projects.map(proj => (
               <div key={proj.id} className="project-card glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: 'rgba(255,255,255,0.02)' }}>
@@ -601,6 +679,15 @@ export default function ChatInterface() {
               </div>
             )}
           </div>
+        )}
+
+        {activeTab === 'tasks' && (
+          <TasksView 
+            tasks={tasks} 
+            taskFilter={taskFilter} 
+            expandedTasks={expandedTasks} 
+            toggleTaskExpand={toggleTaskExpand} 
+          />
         )}
       </div>
 

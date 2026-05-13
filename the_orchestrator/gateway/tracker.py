@@ -79,3 +79,27 @@ async def get_task(task_id: str) -> Task | None:
     if not payload:
         return None
     return Task.from_stream_payload(payload)
+
+
+async def list_tasks() -> list[Task]:
+    """Fetch all tasks stored in the registry, sorted by arrival time descending."""
+    r = await get_redis()
+    tasks = []
+    
+    # Use SCAN to find all task registry keys
+    cursor = "0"
+    pattern = "tasks:registry:*"
+    while cursor != 0:
+        cursor, keys = await r.scan(cursor=cursor, match=pattern, count=100)
+        for key in keys:
+            payload = await r.hgetall(key)
+            if payload:
+                try:
+                    tasks.append(Task.from_stream_payload(payload))
+                except Exception:
+                    # Skip broken records gracefully
+                    continue
+    
+    # Sort by arrival_time descending
+    tasks.sort(key=lambda t: t.arrival_time, reverse=True)
+    return tasks

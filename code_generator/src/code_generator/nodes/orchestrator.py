@@ -1,73 +1,64 @@
 import os
 from typing import Optional
-from pydantic import BaseModel, Field
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_groq import ChatGroq
 from code_generator.src.code_generator.nodes.state import PipelineState
-
-class SelectedProject(BaseModel):
-    """Structured response from the LLM routing decision."""
-    project_id: Optional[str] = Field(default=None, description="The UUID of the selected project, or None if no project matches.")
-    project_name: Optional[str] = Field(default=None, description="The name of the selected project, or None if no project matches.")
-    folder_path: Optional[str] = Field(default=None, description="The absolute folder path of the selected project, or None if no project matches.")
-    reasoning: str = Field(description="Brief explanation of why this project was selected, or a natural response to the user's query if no project is matched.")
+from code_generator.src.code_generator.agents.orchestrator_agent import OrchestratorAgent
 
 
 def orchestrator_node(state: PipelineState) -> PipelineState:
     """
-    Node 0: Match user query to a project.
+    Node 0: Use OrchestratorAgent with tools (list_projects, list_jira_tasks) 
+    to answer queries or match user query to an appropriate project.
     """
     print("\n" + "═" * 60)
-    print("🎯  ORCHESTRATOR – starting")
+    print("🎯  ORCHESTRATOR AGENT – starting")
     print("═" * 60)
 
     try:
-        llm = ChatGroq(
-            model_name="llama-3.3-70b-versatile", 
-            groq_api_key=os.getenv("GROQ_API_KEY"),
-            temperature=0,
-        ).with_structured_output(SelectedProject)
+        agent = OrchestratorAgent()
+        
+        # Run Orchestrator Agent
+        result = agent.run(
+            user_query=state["user_query"],
+            projects=state["projects"],
+            conversation_history=state.get("conversation_history", ""),
+        )
 
-        project_list_str = "\n".join([
-            f"- ID: {p['id']}\n  Name: {p['name']}\n  Folder: {p['folder_path']}\n  Keywords: {p['keywords']}\n  Description: {p['description']}"
-            for p in state["projects"]
-        ])
+        project_id = result.get("project_id")
+        reasoning = result.get("reasoning", "")
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", (
-                "You are an intelligent orchestrator. Your job is to match a user query to the most appropriate project "
-                "from the list provided. Each project has a name, description, keywords, and folder path.\n\n"
-                "0. CONVERSATION HISTORY:\n{history}\n\n"
-                "1. PROJECT LIST:\n{projects}\n\n"
-                "Give natural response to normal queries and if user query is related to any of the projects, return the project_id.\n"
-                "NEVER assume any folder path other than the ones provided in the project list.\n"
-                "NEVER assume any project name other than the ones provided in the project list.\n"
-                "IF user query is not related to any of the projects or neutral, return None as project_id.\n"
-            )),
-            ("user", "{query}"),
-        ])
+        if project_id:
+            # Find the full project dict matching the selected project_id
+            selected = next((p for p in state["projects"] if str(p["id"]) == str(project_id)), None)
+            
+            if not selected:
+                # Fallback if agent provided a non-existent project_id but selected something
+                print(f"⚠️ Agent chose project_id '{project_id}', but it was not found in projects.")
+                return {
+                    **state,
+                    "selection_reasoning": reasoning,
+                    "final_summary": f"Agent attempted to select project {project_id}, but it was not found.",
+                    "error": "Selected project not found."
+                }
 
-        chain = prompt | llm
-        selection: SelectedProject = chain.invoke({
-            "projects": project_list_str,
-            "query": state["user_query"],
-            "history": state.get("conversation_history", "")
-        })
-
-        if selection.project_id:
-            # Find the full project dict
-            selected = next((p for p in state["projects"] if str(p["id"]) == str(selection.project_id)), None)
+            print(f"🎯 Selected Project: {selected.get('name')} ({project_id})")
+            print(f"🧠 Reasoning: {reasoning}")
+            
             return {
                 **state,
                 "selected_project": selected,
-                "selection_reasoning": selection.reasoning
+                "selection_reasoning": reasoning
             }
         else:
+            print("ℹ️ No project selected. Providing general response or tool output.")
+            print(f"🧠 Reasoning: {reasoning}")
+            
             return {
                 **state,
-                "selection_reasoning": selection.reasoning,
-                "final_summary": selection.reasoning
+                "selection_reasoning": reasoning,
+                "final_summary": reasoning
             }
 
     except Exception as e:
-        return {**state, "error": f"Orchestrator failed: {str(e)}"}
+        import traceback
+        traceback.print_exc()
+        return {**state, "error": f"Orchestrator agent failed: {str(e)}"}

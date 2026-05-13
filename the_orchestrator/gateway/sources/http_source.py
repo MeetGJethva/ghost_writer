@@ -22,7 +22,7 @@ from the_orchestrator.gateway.ws_manager import manager as ws_manager
 
 from the_orchestrator.gateway.models.task import SourceType, Task, TaskStatus
 from the_orchestrator.gateway.stream import publish_task
-from the_orchestrator.gateway.tracker import get_task, register_task, update_task
+from the_orchestrator.gateway.tracker import get_task, register_task, update_task, list_tasks
 
 router = APIRouter(prefix="/api", tags=["tasks"])
 
@@ -220,6 +220,30 @@ async def submit_task(
         stream_entry_id=entry_id,
         message="Task accepted and queued for processing.",
     )
+
+
+@router.get(
+    "/tasks",
+    response_model=list[TaskStatusResponse],
+    summary="Get all tracked tasks",
+    description="Retrieve a list of all tasks currently tracked in Redis registry.",
+)
+async def list_all_tasks() -> list[TaskStatusResponse]:
+    tasks = await list_tasks()
+    return [
+        TaskStatusResponse(
+            task_id=t.task_id,
+            source=t.source,
+            source_id=t.source_id,
+            user_query=t.user_query,
+            status=t.status,
+            arrival_time=t.arrival_time,
+            completion_time=t.completion_time,
+            result=t.result,
+            metadata=t.metadata,
+        )
+        for t in tasks
+    ]
 
 
 @router.get(

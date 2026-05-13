@@ -13,10 +13,10 @@ import sys
 
 import click
 
-from gateway.models.task import SourceType, Task
-from gateway.redis_client import close_redis
-from gateway.stream import publish_task
-from gateway.tracker import get_task, register_task
+from the_orchestrator.gateway.models.task import SourceType, Task
+from the_orchestrator.gateway.redis_client import close_redis
+from the_orchestrator.gateway.stream import publish_task
+from the_orchestrator.gateway.tracker import get_task, register_task
 
 
 def _run(coro):
