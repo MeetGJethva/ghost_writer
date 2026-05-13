@@ -13,6 +13,7 @@ from the_orchestrator.gateway.database import Base, close_db, engine, get_db
 from the_orchestrator.gateway.redis_client import close_redis, get_redis
 from the_orchestrator.gateway.sources.http_source import router as http_router
 from the_orchestrator.gateway.project_register import router as project_router
+from the_orchestrator.gateway.sources.notifications import router as notifications_router
 from the_orchestrator.gateway.stream import ensure_consumer_group
 
 
@@ -71,6 +72,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 app.include_router(http_router)
 app.include_router(project_router)
+app.include_router(notifications_router)
 
 
 # ---------------------------------------------------------------------------

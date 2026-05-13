@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Bot, User, Code, FileText, Send, X, Smartphone, Plus, MessageSquare, Trash2, Folder, ChevronDown, ChevronRight, Layout, Activity, CheckCircle, Clock, AlertCircle, RefreshCw, ListTodo } from 'lucide-react';
+import { Bot, User, Code, FileText, Send, X, Smartphone, Plus, MessageSquare, Trash2, Folder, ChevronDown, ChevronRight, Layout, Activity, CheckCircle, Clock, AlertCircle, RefreshCw, ListTodo, Briefcase } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import MarkdownRenderer from './MarkdownRenderer';
 import TasksView from './TasksView';
+import NotificationManager from './NotificationManager';
+import ViewModeSelector from './ViewModeSelector';
 
 const API_BASE = 'http://localhost:3300/api';
 const WS_BASE = 'ws://localhost:3300/ws';
@@ -144,31 +146,38 @@ export default function ChatInterface() {
     };
   }, [activeConversationId]);
 
-  const handleSend = async () => {
-    if (!inputValue.trim() || isSubmitting) return;
-    const query = inputValue;
-    setInputValue('');
+  const handleSend = async (customQuery = null, customSource = 'HTTP', forceNewConversation = false) => {
+    const query = customQuery !== null ? customQuery : inputValue;
+    if (!query.trim() || isSubmitting) return;
+    if (customQuery === null) setInputValue('');
     setIsSubmitting(true);
 
     const tempMsg = {
       id: `temp-${Date.now()}`,
       is_from_agent: false,
-      source: 'web',
+      source: customSource === 'JIRA' ? 'jira' : (customSource === 'WHATSAPP' ? 'whatsapp' : 'web'),
       message: query,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       file_changes: []
     };
-    setMessages(prev => [...prev, tempMsg]);
+    
+    if (forceNewConversation) {
+      setMessages([tempMsg]);
+    } else {
+      setMessages(prev => [...prev, tempMsg]);
+    }
 
     try {
       const payload = {
         query: query,
-        source_id: 'web-user',
-        source: 'HTTP',
+        source_id: customSource === 'JIRA' ? 'jira-system' : 'web-user',
+        source: customSource,
         metadata: {}
       };
-      if (activeConversationId) {
-        payload.conversation_id = activeConversationId;
+      
+      const effectiveConvId = forceNewConversation ? null : activeConversationId;
+      if (effectiveConvId) {
+        payload.conversation_id = effectiveConvId;
       }
 
       const res = await fetch(`${API_BASE}/tasks`, {
@@ -179,8 +188,8 @@ export default function ChatInterface() {
 
       if (res.ok) {
         const taskData = await res.json();
-        if (!activeConversationId && taskData.metadata?.conversation_id) {
-          await fetchConversations();
+        await fetchConversations();
+        if (taskData.metadata?.conversation_id) {
           setActiveConversationId(taskData.metadata.conversation_id);
         }
       }
@@ -189,6 +198,18 @@ export default function ChatInterface() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleStartJiraTask = async (jiraTask) => {
+    setActiveTab('chats');
+    setActiveConversationId(null);
+    
+    const taskQuery = `Start working on Jira Task [${jiraTask.key}]: ${jiraTask.summary}\n\nDescription:\n${jiraTask.description}`;
+    
+    // Execute on a small delay to ensure state initialization
+    setTimeout(() => {
+      handleSend(taskQuery, 'JIRA', true);
+    }, 150);
   };
 
   const handleNewConversation = () => {
@@ -344,14 +365,10 @@ export default function ChatInterface() {
                 New Conversation
               </button>
 
-              <div style={{ marginTop: '1.5rem', marginBottom: '1rem' }}>
-                <h3 style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.75rem', letterSpacing: '0.05em' }}>View Mode</h3>
-                <div className="toggle-group">
-                  <button className={`toggle-btn ${viewFilter === 'all' ? 'active' : ''}`} onClick={() => setViewFilter('all')}>All</button>
-                  <button className={`toggle-btn ${viewFilter === 'HTTP' ? 'active' : ''}`} onClick={() => setViewFilter('HTTP')}>Web</button>
-                  <button className={`toggle-btn ${viewFilter === 'WHATSAPP' ? 'active' : ''}`} onClick={() => setViewFilter('WHATSAPP')}>WhatsApp</button>
-                </div>
-              </div>
+              <ViewModeSelector 
+                currentFilter={viewFilter}
+                onChange={setViewFilter}
+              />
             </>
           )}
 
@@ -411,10 +428,10 @@ export default function ChatInterface() {
                 position: 'relative'
               }}
             >
-              {conv.source === 'WHATSAPP' ? <Smartphone size={18} color="#22c55e" /> : <MessageSquare size={18} color="var(--accent-2)" />}
+              {conv.source === 'WHATSAPP' ? <Smartphone size={18} color="#22c55e" /> : conv.source === 'JIRA' ? <Briefcase size={18} color="#3b82f6" /> : <MessageSquare size={18} color="var(--accent-2)" />}
               <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
                 <span style={{ fontSize: '0.9rem', fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                  {conv.source === 'WHATSAPP' ? conv.number : 'Web Session'}
+                  {conv.source === 'WHATSAPP' ? conv.number : conv.source === 'JIRA' ? 'Jira Task' : 'Web Session'}
                 </span>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   {conv.id.substring(0, 8)}...
@@ -531,7 +548,7 @@ export default function ChatInterface() {
           <>
             <div className="chat-messages">
               {messages.map((msg) => (
-                <div key={msg.id} className={`message-wrapper ${msg.is_from_agent ? 'agent' : 'user'} ${msg.source === 'WHATSAPP' ? 'whatsapp' : ''}`}>
+                <div key={msg.id} className={`message-wrapper ${msg.is_from_agent ? 'agent' : 'user'} ${msg.source === 'WHATSAPP' || msg.source === 'whatsapp' ? 'whatsapp' : (msg.source === 'JIRA' || msg.source === 'jira' ? 'jira' : '')}`}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
                     {msg.is_from_agent && (
                       <div style={{ marginTop: '0.25rem', color: 'var(--accent-1)' }}>
@@ -600,8 +617,8 @@ export default function ChatInterface() {
                       )}
                     </div>
                     {!msg.is_from_agent && (
-                      <div style={{ marginTop: '0.25rem', color: msg.source === 'WHATSAPP' ? '#22c55e' : 'var(--text-muted)' }}>
-                        <User size={24} />
+                      <div style={{ marginTop: '0.25rem', color: (msg.source === 'WHATSAPP' || msg.source === 'whatsapp') ? '#22c55e' : (msg.source === 'JIRA' || msg.source === 'jira' ? '#3b82f6' : 'var(--text-muted)') }}>
+                        {msg.source === 'JIRA' || msg.source === 'jira' ? <Briefcase size={24} /> : <User size={24} />}
                       </div>
                     )}
                   </div>
@@ -777,6 +794,7 @@ export default function ChatInterface() {
           </motion.div>
         )}
       </AnimatePresence>
+      <NotificationManager onStartTask={handleStartJiraTask} />
     </div>
   );
 }

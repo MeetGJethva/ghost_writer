@@ -16,6 +16,7 @@ class SourceType(str, Enum):
     HTTP = "HTTP"
     WHATSAPP = "WHATSAPP"
     CLI = "CLI"
+    JIRA = "JIRA"
 
 
 class TaskStatus(str, Enum):
