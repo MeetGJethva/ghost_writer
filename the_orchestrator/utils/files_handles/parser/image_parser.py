@@ -1,8 +1,9 @@
 from .base import BaseParser
 from langchain_core.messages import HumanMessage
+import base64
 
 class ImageParser(BaseParser):
-    def parse(self, file_path: str, llm, vision, file_data: bytes, user_query: str) -> str:
+    async def parse(self, file_path: str = None, llm=None, vision=None, file_data: bytes= None, user_query: str = None) -> str:
         message = HumanMessage(content=[
             {
                 "type": "text",
@@ -10,9 +11,10 @@ class ImageParser(BaseParser):
             },
             {
                 "type": "image_url",
-                "image_url": f"data:image/jpeg;base64,{base64.b64encode(file_data).decode('utf-8')}"
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{base64.b64encode(file_data).decode('utf-8')}"
+                }
             }
         ])
-        response = llm.invoke(messages=[message])
+        response = await llm.ainvoke([message])
         return response.content
-        

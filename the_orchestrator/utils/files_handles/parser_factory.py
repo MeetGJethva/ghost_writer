@@ -23,5 +23,5 @@ ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/gif", "image/bmp", "imag
 
 parser = ParserFactory()
 
-parser.register(ALLOWED_PDF_MIME, PDFParse)
-parser.register(ALLOWED_IMAGE_MIME, ImageParser)
+parser.register(ALLOWED_PDF_MIME, PDFParse())
+parser.register(ALLOWED_IMAGE_MIME, ImageParser())
