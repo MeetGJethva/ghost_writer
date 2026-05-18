@@ -69,6 +69,7 @@ class SubmitTaskResponse(BaseModel):
     arrival_time: datetime
     stream_entry_id: str
     message: str
+    conversation_id: str
 
 
 class TaskStatusResponse(BaseModel):
@@ -252,6 +253,7 @@ async def submit_task(
         arrival_time=task.arrival_time,
         stream_entry_id=entry_id,
         message="Task accepted and queued for processing.",
+        conversation_id=str(conversation.id),
     )
 
 

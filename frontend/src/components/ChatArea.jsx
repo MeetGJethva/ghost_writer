@@ -32,6 +32,43 @@ const ChatArea = forwardRef(({
   const messagesEndRef = useRef(null);
   const wsRef = useRef(null);
   const fileInputRef = useRef(null);
+  const pollingIntervalsRef = useRef([]);
+
+  // Cleanup all polling intervals on unmount
+  useEffect(() => {
+    return () => {
+      pollingIntervalsRef.current.forEach(clearInterval);
+    };
+  }, []);
+
+  const pollTaskStatus = (taskId, convId) => {
+    // Clear any previous active polling intervals
+    pollingIntervalsRef.current.forEach(clearInterval);
+    pollingIntervalsRef.current = [];
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/tasks/${taskId}`);
+        if (res.ok) {
+          const task = await res.json();
+          if (task.status === 'COMPLETED' || task.status === 'FAILED') {
+            clearInterval(interval);
+            setIsSubmitting(false);
+            if (convId) {
+              fetchHistory(convId);
+            }
+          }
+        } else {
+          clearInterval(interval);
+          setIsSubmitting(false);
+        }
+      } catch (err) {
+        console.error('Error polling task status:', err);
+      }
+    }, 1500);
+
+    pollingIntervalsRef.current.push(interval);
+  };
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
@@ -115,6 +152,13 @@ const ChatArea = forwardRef(({
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'new_message') {
+          // If we receive the agent response message, clear polling and loader
+          if (data.message.is_from_agent) {
+            setIsSubmitting(false);
+            pollingIntervalsRef.current.forEach(clearInterval);
+            pollingIntervalsRef.current = [];
+          }
+
           setMessages(prev => {
             if (prev.some(m => m.id === data.message.id)) return prev;
             const cleaned = prev.filter(m => {
@@ -194,17 +238,25 @@ const ChatArea = forwardRef(({
 
       if (res.ok) {
         const taskData = await res.json();
-        setAttachedFile(null); // Clear attached file on success
+        setAttachedFile(null);
         if (onConversationCreated) {
           onConversationCreated();
         }
-        if (taskData.metadata?.conversation_id) {
-          setActiveConversationId(taskData.metadata.conversation_id);
+
+        // conversation_id is now returned directly in the response
+        const newConvId = taskData.conversation_id;
+        if (newConvId) {
+          setActiveConversationId(newConvId);
+          // Polling guarantees response is shown even if WS misses the broadcast
+          pollTaskStatus(taskData.task_id, newConvId);
+        } else {
+          setIsSubmitting(false);
         }
+      } else {
+        setIsSubmitting(false);
       }
     } catch (err) {
       console.error('Failed to submit task', err);
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -375,8 +427,8 @@ const ChatArea = forwardRef(({
               disabled={isSubmitting || isUploading}
               style={{ flex: 1, border: 'none', background: 'transparent', outline: 'none', color: 'white', resize: 'none', minHeight: '42px', maxHeight: '120px', padding: '0.5rem 0.25rem', fontSize: '0.95rem' }}
             />
-            <button className="send-btn" onClick={handleSend} disabled={(!inputValue.trim() && !attachedFile) || isSubmitting || isUploading} style={{ width: '42px', height: '42px', minWidth: '42px', borderRadius: '12px' }}>
-              <Send size={18} />
+            <button className="send-btn" onClick={handleSend} disabled={(!inputValue.trim() && !attachedFile) || isSubmitting || isUploading} style={{ width: '42px', height: '42px', minWidth: '42px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {isSubmitting ? <RefreshCw size={18} className="spin-animation" /> : <Send size={18} />}
             </button>
           </div>
         </>
