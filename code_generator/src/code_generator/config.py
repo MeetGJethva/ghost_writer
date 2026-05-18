@@ -35,6 +35,12 @@ def code_generator_llm(temperature: float = 0):
     temperature=temperature,
   )
 
+def vision_llm(temperature: float = 0.2):
+    return ChatGroq(
+        model="meta-llama/llama-4-scout-17b-16e-instruct",
+        temperature=temperature,
+        api_key=os.getenv("GROQ_API_KEY"),
+    )
 # ── AGENT SETTINGS ─────────────────────────────────────────────────────────────
 # Max iterations each ReAct agent is allowed to run before giving up.
 MAX_AGENT_ITERATIONS = int(os.getenv("MAX_AGENT_ITERATIONS", "20"))

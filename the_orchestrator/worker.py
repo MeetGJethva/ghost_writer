@@ -91,10 +91,44 @@ async def process_task(task: Task, projects: List[Project]):
         source_id=task.source_id
     )
 
+    # Check for uploaded files in task metadata
+    query_to_send = task.user_query
+    file_path = task.metadata.get("file_path")
+    file_name = task.metadata.get("file_name", "Uploaded File")
+    
+    if file_path and os.path.exists(file_path):
+        print(f"         [worker] Detected attached file: {file_name} ({file_path})")
+        try:
+            # Load file data
+            with open(file_path, "rb") as f:
+                file_data = f.read()
+            
+            # Obtain LLM using standard helper
+            from code_generator.src.code_generator.config import get_llm, vision_llm
+            llm = get_llm()
+            vision_llm = vision_llm()
+            
+            # Run parser gateway
+            from the_orchestrator.utils.files_handles.parser_gateway import process_file
+            parsed_content = await process_file(
+                file_data=file_data,
+                file_path=file_path,
+                llm=llm,
+                vision=vision_llm,
+                query=task.user_query
+            )
+            
+            # Append parsed content to user query
+            query_to_send = f"{task.user_query}\n\n[Attached Document: {file_name}]\n{parsed_content}"
+            print(f"         [worker] Successfully parsed document ({len(parsed_content)} chars)")
+        except Exception as e:
+            print(f"         [worker] Failed to parse document: {e}")
+            query_to_send = f"{task.user_query}\n\n[Attached Document: {file_name} - Processing Failed: {str(e)}]"
+
     try:
         # Run the unified graph
         final_state = acess_code_generator(
-            query=task.user_query,
+            query=query_to_send,
             projects=projects_data,
             conversation_history=conversation_history
         )

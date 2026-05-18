@@ -16,5 +16,5 @@ class ImageParser(BaseParser):
                 }
             }
         ])
-        response = await llm.ainvoke([message])
+        response = await vision.ainvoke([message])
         return response.content

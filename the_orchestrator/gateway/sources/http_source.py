@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+import os
+import shutil
 
-from fastapi import APIRouter, HTTPException, status, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, status, Depends, WebSocket, WebSocketDisconnect, UploadFile, File
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -25,6 +27,8 @@ from the_orchestrator.gateway.stream import publish_task
 from the_orchestrator.gateway.tracker import get_task, register_task, update_task, list_tasks
 
 router = APIRouter(prefix="/api", tags=["tasks"])
+
+UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "uploads"))
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +122,29 @@ class CompleteTaskRequest(BaseModel):
 
 
 @router.post(
+    "/upload",
+    summary="Upload a document or image",
+    description="Upload a document or image file to be processed by the orchestrator.",
+)
+async def upload_file(file: UploadFile = File(...)):
+    # Create the directory if it doesn't exist
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    
+    # Save the file securely with a unique identifier
+    file_id = str(uuid.uuid4())
+    safe_filename = f"{file_id}_{file.filename}"
+    file_path = os.path.join(UPLOAD_DIR, safe_filename)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    return {
+        "file_path": file_path,
+        "file_name": file.filename
+    }
+
+
+@router.post(
     "/tasks",
     response_model=SubmitTaskResponse,
     status_code=status.HTTP_202_ACCEPTED,
@@ -170,9 +197,15 @@ async def submit_task(
         except ValueError:
             pass
 
+    # Check if a file was attached and format the message text
+    message_text = body.query
+    file_name = body.metadata.get("file_name")
+    if file_name:
+        message_text = f"📎 **[Attached File: {file_name}]**\n\n{body.query}"
+
     chat_entry = ChatHistory(
         conversation_id=conversation.id,
-        message=body.query,
+        message=message_text,
         is_from_agent=False,
         project_id=proj_uuid
     )
@@ -187,7 +220,7 @@ async def submit_task(
             "id": str(chat_entry.id),
             "is_from_agent": False,
             "source": conversation.source,
-            "message": body.query,
+            "message": message_text,
             "timestamp": chat_entry.created_at.strftime("%I:%M %p"),
             "file_changes": [],
             "project_id": str(chat_entry.project_id) if chat_entry.project_id else None
