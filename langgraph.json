@@ -1,0 +1,9 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "dependencies": ["."],
+  "graphs": {
+    "code_generator": "./code_generator/src/code_generator/graph.py:pipeline"
+  },
+  "env": ".env",
+  "image_distro": "wolfi"
+}

@@ -17,3 +17,5 @@ wheels/
 *.wwebjs_cache
 
 node_modules/
+
+.langgraph_api
